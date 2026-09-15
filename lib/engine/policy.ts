@@ -72,7 +72,7 @@ export const RATIONING_LABELS: Record<RationingRule, string> = {
 
 export const RATIONING_DESCRIPTIONS: Record<RationingRule, string> = {
   'worst-first': 'Whoever is furthest below target is served until they catch up.',
-  proportional: 'Every SKU receives the same fraction of what it asked for.',
+  proportional: 'Every SKU receives the same fraction of its build needed.',
   'backlog-first': 'Units already owed to customers are built before any buffer.',
 }
 

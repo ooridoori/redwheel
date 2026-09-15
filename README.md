@@ -17,6 +17,19 @@ npm run dev          # the UI
 `data/raw/` holds Redwheel's nine files byte-for-byte as received. Everything
 downstream is derived, so re-running `build:data` is always safe.
 
+Both routes prerender as static HTML and the engine runs in the browser, so
+`npm run build && npm start` serves the whole thing with no backend. It deploys
+to any static host the same way:
+
+```bash
+npx vercel login
+npx vercel --prod
+```
+
+The hosted copy sends `noindex` (`app/robots.ts` and the root layout) because
+the plan is built from an interview brief — share the URL directly rather than
+letting it turn up in search results.
+
 ## How it fits together
 
 ```
@@ -32,15 +45,36 @@ PlanningInputs                compact projection: opening stock, backlog,
       |                       weekly demand, weekly capacity (115 KB)
       |  lib/engine/
       v
-BuildPlan                     units to build per line, per week
+BuildPlan                     units to build per SKU, per week
       |
       v
-app/                          the math, and KPIs against target
+app/                          one planner screen, plus the data behind it
 ```
 
 The projection step exists so the engine can run in the browser. `MasterData`
 carries all ~14,000 order lines and is 4.7 MB; `PlanningInputs` is 115 KB,
 small enough to ship to the client and re-run the engine on every input change.
+
+## The screen
+
+`/` is a single screen, in the order a planning question gets answered:
+
+| Region | Answers |
+| --- | --- |
+| Top bar | Product group, date range, the assumptions in force, and `Run allocation` |
+| KPI row | Target cover, cover at snapshot, projected cover, capacity used, backlog |
+| Planner insight | What is wrong, why, and when it is fixed — computed from the plan on screen |
+| Cover vs target | Whether the engine actually reaches target, and when |
+| Build plan table | One row per SKU per week: forecast, stock, backlog, asked, built, capacity, end cover |
+| Drawer | Click any row for the arithmetic behind that single build number |
+
+Controls edit a *draft* policy; the plan only changes when `Run allocation` is
+pressed. That makes the brief's single-button engine literal, and lets several
+assumptions be changed together rather than the plan thrashing per keystroke.
+
+`/data` holds Part 1 — the nine source files and what each became, Redwheel's
+opening position per SKU, capacity against build, and every judgement call —
+kept off the planner screen so the planner stays one screen.
 
 ## The problem in one paragraph
 

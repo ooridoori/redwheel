@@ -23,6 +23,15 @@ export interface HistoryPoint {
   orderLines: number
 }
 
+/** One of the nine files Redwheel sent, and what it became. */
+export interface SourceSummary {
+  file: string
+  rows: number
+  becomes: string
+  /** The dialect quirk that had to be reconciled, where there was one. */
+  quirk?: string
+}
+
 export interface PlanningInputs {
   /** Snapshot date. Also the first week of the plan. */
   asOf: string
@@ -45,6 +54,7 @@ export interface PlanningInputs {
   capacity: ByLineWeek
   /** A year of order history, rolled up for display. */
   history: HistoryPoint[]
+  sources: SourceSummary[]
   notes: DataNote[]
 }
 
@@ -95,8 +105,57 @@ export function derivePlanningInputs(master: MasterData): PlanningInputs {
     demandByChannel,
     capacity,
     history: rollUpHistory(master),
+    sources: summarizeSources(master),
     notes: master.notes,
   }
+}
+
+/** What arrived, and what each file turned into. Counts are measured, not asserted. */
+function summarizeSources(master: MasterData): SourceSummary[] {
+  const orders = (channel: Channel) => master.orders.filter((order) => order.channel === channel).length
+  const forecast = (channel: Channel) => master.forecast.filter((point) => point.channel === channel).length
+
+  return [
+    {
+      file: 'dtc_web_orders.csv',
+      rows: orders('dtc'),
+      becomes: 'Orders, DTC channel',
+      quirk: 'snake_case, ISO dates, true/false',
+    },
+    {
+      file: 'dealer_orders_export.csv',
+      rows: orders('dealer'),
+      becomes: 'Orders, dealer channel',
+      quirk: 'Title Case, 09/08/2025 dates, Y/N',
+    },
+    {
+      file: 'Commercial_PO_Log.csv',
+      rows: orders('commercial'),
+      becomes: 'Orders, commercial channel',
+      quirk: 'Product, Length, Material; 10-Sep-2025 dates, Yes/No',
+    },
+    {
+      file: 'plant_inventory_snapshot.csv',
+      rows: master.stock.filter((position) => position.owner === 'redwheel').length,
+      becomes: 'Opening stock Redwheel can allocate',
+      quirk: 'Single shared as-of date',
+    },
+    {
+      file: 'dealer_stock_report.csv',
+      rows: master.stock.filter((position) => position.owner === 'dealer').length,
+      becomes: 'Downstream buffer against dealer demand',
+      quirk: 'Counts taken across six different days',
+    },
+    {
+      file: 'capacity_plan.csv',
+      rows: master.capacity.length,
+      becomes: 'Weekly ceiling per production line',
+      quirk: 'Ceilings change over the horizon',
+    },
+    { file: 'forecast_dtc.csv', rows: forecast('dtc'), becomes: 'Forecast demand, DTC' },
+    { file: 'forecast_dealer.csv', rows: forecast('dealer'), becomes: 'Forecast demand, dealer' },
+    { file: 'forecast_commercial.csv', rows: forecast('commercial'), becomes: 'Forecast demand, commercial' },
+  ]
 }
 
 /** Monthly order units per channel, from the year of history. */

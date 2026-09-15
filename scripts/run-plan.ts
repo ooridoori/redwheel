@@ -9,7 +9,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LINE_LABELS, LINES } from '../lib/domain'
+import { LINE_LABELS } from '../lib/domain'
 import type { PlanningInputs } from '../lib/planning-inputs'
 import { runAllocation } from '../lib/engine'
 import { DEFAULT_POLICY, RATIONING_LABELS, type RationingRule } from '../lib/engine/policy'

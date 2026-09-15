@@ -1,26 +1,116 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/**
+ * Dark planning-tool palette, modelled on Mercury's Insights dashboard:
+ * near-black chrome, one indigo accent, and colour reserved for meaning rather
+ * than decoration. In this app colour carries exactly three signals — at
+ * target, below target, and capacity pressure.
+ */
+@theme {
+  --color-canvas: #101216;
+  --color-surface: #17191f;
+  --color-raised: #1d2027;
+  --color-hover: #23262e;
+  --color-edge: #272a32;
+  --color-edge-strong: #343845;
+
+  --color-ink: #e9ebef;
+  --color-ink-muted: #9ba1ad;
+  --color-ink-faint: #6e7480;
+
+  --color-accent: #7c87f5;
+  --color-accent-bright: #939cf8;
+  --color-accent-soft: #232741;
+
+  --color-pos: #3fcf8e;
+  --color-pos-soft: #14301f;
+  --color-neg: #e5606d;
+  --color-neg-soft: #35191d;
+  --color-warn: #dfa352;
+  --color-warn-soft: #33261233;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/**
+ * Every figure in this app sits in a column that has to line up with the figure
+ * above it, so digits are always fixed width.
+ */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/**
+ * Marks a figure the last run moved. Tint only — the run itself is the loader,
+ * so a flash on top of that would be a second signal for the same event.
+ */
+@utility changed {
+  background-color: var(--color-accent-soft);
+  border-radius: 0.25rem;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@utility bone {
+  background-color: var(--color-hover);
+  border-radius: 0.25rem;
+  animation: pulse 1.15s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone {
+    animation: none;
+  }
+}
+
+/** The small muted label above a metric, as used throughout Mercury's Insights. */
+@utility eyebrow {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-muted);
+}
+
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+}
+
+* {
+  scrollbar-color: var(--color-edge-strong) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-edge-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #454a59;
+  background-clip: content-box;
 }

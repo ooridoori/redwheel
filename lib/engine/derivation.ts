@@ -45,13 +45,21 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, rule: RationingRu
       operator: '+',
       note: row.startingBacklog > 0 ? 'Backlog is netted out, so it has to be rebuilt too' : undefined,
     },
-    { label: "This week's demand", value: row.forecast, operator: '+' },
+    {
+      label: "This week's demand",
+      value: row.forecast,
+      operator: '+',
+      note:
+        row.absorbedByDealers > 0
+          ? `${row.absorbedByDealers.toLocaleString()} of ${row.grossForecast.toLocaleString()} covered by dealer stock`
+          : undefined,
+    },
     { label: 'Stock already on hand', value: row.startingInventory, operator: '\u2212' },
-    { label: 'Units needed', value: row.desiredBuild, operator: '=', emphasis: true },
+    { label: 'Build needed', value: row.desiredBuild, operator: '=', emphasis: true },
   ]
 
   const allocation: DerivationStep[] = [
-    { label: 'Units needed', value: row.desiredBuild, operator: '' },
+    { label: 'Build needed', value: row.desiredBuild, operator: '' },
     {
       label: `Line capacity this week`,
       value: lineWeek.capacity,
@@ -59,26 +67,26 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, rule: RationingRu
       note: `Shared across every size on ${LINE_LABELS[row.line]}`,
     },
     {
-      label: 'Asked for by the whole line',
+      label: 'Build needed for the line',
       value: lineWeek.desiredBuild,
       operator: '',
       note: wasRationed
         ? `Over capacity by ${(lineWeek.desiredBuild - lineWeek.capacity).toLocaleString()} units, so ${RATIONING_LABELS[rule].toLowerCase()} decided the split`
-        : 'Within capacity, so every size got what it asked for',
+        : 'Within capacity, so every size received its build needed',
     },
-    { label: 'Units built', value: row.build, operator: '=', emphasis: true },
+    { label: 'Planned build', value: row.build, operator: '=', emphasis: true },
   ]
 
   const outcome: DerivationStep[] = [
-    { label: 'Stock at week start', value: row.startingInventory, operator: '' },
-    { label: 'Units built', value: row.build, operator: '+' },
+    { label: 'Starting inventory', value: row.startingInventory, operator: '' },
+    { label: 'Planned build', value: row.build, operator: '+' },
     {
       label: 'Units shipped',
       value: row.shipped,
       operator: '\u2212',
       note: 'Backlog and this week\u2019s demand draw on the same stock',
     },
-    { label: 'Stock at week end', value: row.endingInventory, operator: '=', emphasis: true },
+    { label: 'Ending inventory', value: row.endingInventory, operator: '=', emphasis: true },
   ]
 
   return { need, allocation, outcome, wasRationed }

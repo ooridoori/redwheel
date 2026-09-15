@@ -129,6 +129,8 @@ export const LINE_LABELS: Record<LineId, string> = {
   'mtb-carbon': 'Mountain — Carbon',
 }
 
+export const CHANNELS: Channel[] = ['dtc', 'dealer', 'commercial']
+
 export const CHANNEL_LABELS: Record<Channel, string> = {
   dtc: 'Direct to consumer',
   dealer: 'Dealer',
