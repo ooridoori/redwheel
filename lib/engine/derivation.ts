@@ -76,7 +76,7 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, rule: RationingRu
       label: 'Units shipped',
       value: row.shipped,
       operator: '\u2212',
-      note: 'Backlog is cleared before new demand',
+      note: 'Backlog and this week\u2019s demand draw on the same stock',
     },
     { label: 'Stock at week end', value: row.endingInventory, operator: '=', emphasis: true },
   ]

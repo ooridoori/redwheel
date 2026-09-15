@@ -49,7 +49,11 @@ export interface PlanRow {
   desiredBuild: number
   /** What it got, after the line's capacity was divided up. */
   build: number
-  /** Units actually delivered this week, oldest obligations first. */
+  /**
+   * Units delivered this week, against backlog and current demand together.
+   * Both draw on the same stock, so which is served first cannot change the
+   * ending position — and the engine therefore does not track the split.
+   */
   shipped: number
   endingInventory: number
   endingBacklog: number

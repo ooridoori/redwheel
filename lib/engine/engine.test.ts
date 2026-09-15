@@ -85,6 +85,7 @@ function makeInputs(options: {
       [line]: Object.fromEntries(planned.map((week) => [week, capacity])),
     },
     history: [],
+    sources: [],
     notes: [],
   }
 }
@@ -133,7 +134,7 @@ describe('reaching the target', () => {
     expect(withBacklog.rows[0].desiredBuild - withoutBacklog.rows[0].desiredBuild).toBe(40)
   })
 
-  it('clears backlog before serving new demand', () => {
+  it('serves backlog and new demand from the same stock', () => {
     const plan = runAllocation(
       makeInputs({ specs: [{ sku: 'A', size: 'M', demand: 10, onHand: 0, backlog: 25 }], capacity: 10_000 }),
     )
@@ -279,6 +280,119 @@ describe('carrying state forward', () => {
       expect(row.endingInventory).toBeGreaterThanOrEqual(0)
       expect(row.endingBacklog).toBeGreaterThanOrEqual(0)
     }
+  })
+})
+
+/**
+ * The roll-forward is the load-bearing arithmetic of the whole engine: a week
+ * ends with stock plus what was built, less everything that shipped, and
+ * anything it could not ship becomes next week's debt.
+ *
+ * The failure mode these tests exist to catch is a roll-forward that adds the
+ * build onto opening stock without consuming demand. Such a bug inflates cover
+ * every week, so the plan reports hitting target while the shelves are empty —
+ * and it would still satisfy a naive stock-only conservation check.
+ */
+describe('the weekly roll-forward', () => {
+  it('consumes demand rather than banking the build', () => {
+    // Hand-checkable: 100 on hand, 50 built, 20 owed and 30 forecast.
+    // Obligations of 50 are covered in full, so stock ends where it started.
+    const plan = runAllocation(
+      makeInputs({
+        specs: [{ sku: 'A', size: 'M', demand: 30, onHand: 100, backlog: 20 }],
+        capacity: 50,
+        planWeeks: 1,
+      }),
+    )
+    const [week] = plan.rows
+
+    expect(week.build).toBe(50)
+    expect(week.shipped).toBe(50)
+    expect(week.endingInventory).toBe(100)
+    expect(week.endingBacklog).toBe(0)
+    // The bug being guarded against would report 150 here.
+    expect(week.endingInventory).not.toBe(week.startingInventory + week.build)
+  })
+
+  it('turns demand it cannot serve into next week\u2019s backlog', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [{ sku: 'A', size: 'M', demand: 30, onHand: 0, backlog: 0 }],
+        capacity: 10,
+        planWeeks: 2,
+      }),
+    )
+    const [first, second] = plan.rows
+
+    expect(first.shipped).toBe(10)
+    expect(first.endingInventory).toBe(0)
+    expect(first.endingBacklog).toBe(20)
+    expect(second.startingBacklog).toBe(20)
+    // Second week owes the 20 carried over plus another 30 of fresh demand.
+    expect(second.endingBacklog).toBe(40)
+  })
+
+  it('balances the demand side of every week, not just the stock side', () => {
+    const plan = runAllocation(
+      makeInputs({ specs: [{ sku: 'A', size: 'M', demand: 40, onHand: 10, backlog: 100 }], capacity: 25 }),
+    )
+    for (const row of plan.rows) {
+      expect(row.endingBacklog).toBe(row.startingBacklog + row.forecast - row.shipped)
+    }
+  })
+
+  it('never ends a week holding stock while still owing units', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [
+          { sku: 'A', size: 'M', demand: 40, onHand: 10, backlog: 100 },
+          { sku: 'B', size: 'L', demand: 5, onHand: 400, backlog: 0 },
+        ],
+        capacity: 60,
+      }),
+    )
+    for (const row of plan.rows) {
+      expect(Math.min(row.endingInventory, row.endingBacklog)).toBe(0)
+    }
+  })
+
+  it('ships no more than it physically has', () => {
+    const plan = runAllocation(
+      makeInputs({ specs: [{ sku: 'A', size: 'M', demand: 90, onHand: 5, backlog: 500 }], capacity: 10 }),
+    )
+    for (const row of plan.rows) {
+      expect(row.shipped).toBeLessThanOrEqual(row.startingInventory + row.build)
+      expect(row.shipped).toBeLessThanOrEqual(row.startingBacklog + row.forecast)
+    }
+  })
+
+  it('loses no demand across the whole horizon', () => {
+    const inputs = makeInputs({
+      specs: [{ sku: 'A', size: 'M', demand: 40, onHand: 10, backlog: 100 }],
+      capacity: 25,
+    })
+    const plan = runAllocation(inputs)
+    const rows = plan.rows.filter((row) => row.sku === 'A')
+
+    const demanded = rows.reduce((total, row) => total + row.forecast, 0)
+    const shipped = rows.reduce((total, row) => total + row.shipped, 0)
+
+    // Everything ever owed is either delivered or still owed at the end.
+    expect(rows[0].startingBacklog + demanded).toBe(shipped + rows[rows.length - 1].endingBacklog)
+  })
+
+  it('loses no units across the whole horizon', () => {
+    const inputs = makeInputs({
+      specs: [{ sku: 'A', size: 'M', demand: 40, onHand: 10, backlog: 100 }],
+      capacity: 25,
+    })
+    const plan = runAllocation(inputs)
+    const rows = plan.rows.filter((row) => row.sku === 'A')
+
+    const built = rows.reduce((total, row) => total + row.build, 0)
+    const shipped = rows.reduce((total, row) => total + row.shipped, 0)
+
+    expect(rows[0].startingInventory + built).toBe(shipped + rows[rows.length - 1].endingInventory)
   })
 })
 
