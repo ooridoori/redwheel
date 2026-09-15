@@ -81,14 +81,21 @@ export function InfoTip({ text }: { text: string }) {
                 ? 'translate(-50%, 8px)'
                 : 'translate(-50%, calc(-100% - 8px))',
             }}
-            className="pointer-events-none fixed z-[80] max-w-[260px]"
+            className="pointer-events-none fixed z-[80] max-w-[280px]"
           >
-            <div className="relative rounded-lg bg-[#2a2e38] px-2.5 py-1.5 text-[12px] leading-snug text-ink shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+            <div
+              className={cx(
+                'relative rounded-lg border border-edge-strong bg-[#2a2e38] px-2.5 py-1.5 text-[12px] leading-snug text-ink shadow-[0_10px_28px_rgba(0,0,0,0.5)]',
+              )}
+            >
               {text}
               <span
+                aria-hidden
                 className={cx(
-                  'absolute left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#2a2e38]',
-                  coords.below ? '-top-1' : '-bottom-1',
+                  'absolute left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-edge-strong bg-[#2a2e38]',
+                  coords.below
+                    ? '-top-1 border-t border-l'
+                    : '-bottom-1 border-b border-r',
                 )}
               />
             </div>

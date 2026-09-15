@@ -62,8 +62,8 @@ export function WosChart({
   const showShade = Boolean(shadeFrom && shadeTo && visibleWeeks.length < plan.weeks.length)
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-2 flex shrink-0 flex-col gap-1.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
         <h2 className="text-[13px] font-medium text-ink">Projected cover vs target</h2>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {lines.map((line) => (
@@ -83,13 +83,13 @@ export function WosChart({
       </div>
 
       <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: -20 }}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+          <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
             <CartesianGrid stroke="#272a32" vertical={false} />
             <XAxis
               dataKey="week"
               tickFormatter={monthLabel}
-              minTickGap={44}
+              minTickGap={28}
               stroke="#6e7480"
               fontSize={10.5}
               tickLine={false}
@@ -181,8 +181,8 @@ export function WosChart({
 
 export function ChartSkeleton() {
   return (
-    <div className="flex h-full flex-col" aria-hidden>
-      <div className="mb-2 flex items-baseline justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col" aria-hidden>
+      <div className="mb-2 flex shrink-0 items-baseline justify-between gap-3">
         <h2 className="text-[13px] font-medium text-ink">Projected cover vs target</h2>
         <div className="flex gap-3">
           <Bone className="h-3 w-20" />
@@ -190,7 +190,7 @@ export function ChartSkeleton() {
         </div>
       </div>
       <Bone className="min-h-0 flex-1 rounded-lg" />
-      <Bone className="mt-2 h-3 w-2/3" />
+      <Bone className="mt-2 h-3 w-2/3 shrink-0" />
     </div>
   )
 }

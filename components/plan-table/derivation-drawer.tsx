@@ -1,35 +1,45 @@
 'use client'
 
 /**
- * Why one build number is what it is.
+ * Why one planned-build number is what it is.
  *
- * Three questions in order: how many units did this SKU need, how many did the
- * line actually give it, and where did the week leave it. Every figure comes
- * from the plan row itself, so this panel cannot drift out of step with the
- * table beside it.
+ * Three questions: how much should we build, how much can we actually build,
+ * and where that leaves us. Every figure comes from the plan row itself.
  */
 import { LINE_LABELS } from '@/lib/domain'
 import { units, weekLabelLong, weeks } from '@/lib/format'
-import { derivationOf, type DerivationStep } from '@/lib/engine/derivation'
+import {
+  derivationOf,
+  type EquationTerm,
+  type PeerStanding,
+  type TermRole,
+} from '@/lib/engine/derivation'
 import { RATIONING_DESCRIPTIONS, RATIONING_LABELS, type RationingRule } from '@/lib/engine/policy'
+import type { PlanRow } from '@/lib/engine'
 import { Badge, Divider, cx } from '@/components/ui/primitives'
 import { CloseIcon } from '@/components/ui/icons'
 import type { TableRow } from './rows'
 
 export function DerivationDrawer({
   row,
+  lineRows,
   rule,
   onClose,
+  onSelectSku,
 }: {
   row: TableRow
+  /** Every SKU on this line in the same week — used to show who got capacity. */
+  lineRows: PlanRow[]
   rule: RationingRule
   onClose: () => void
+  onSelectSku: (sku: string) => void
 }) {
   const { row: planRow, lineWeek } = row.detail
-  const derivation = derivationOf(planRow, lineWeek, rule)
+  const derivation = derivationOf(planRow, lineWeek, lineRows)
+  const shorted = planRow.desiredBuild > planRow.build
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-l border-edge bg-surface">
+    <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col overflow-y-auto border-l border-edge bg-surface shadow-2xl lg:static lg:z-auto lg:w-[400px] lg:max-w-none lg:shrink-0 lg:shadow-none">
       <header className="sticky top-0 z-10 border-b border-edge bg-surface px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -49,109 +59,213 @@ export function DerivationDrawer({
           </button>
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
-          <Badge tone={planRow.endingCoverage >= planRow.targetWeeks ? 'positive' : planRow.endingCoverage < 0 ? 'negative' : 'warning'}>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Badge
+            tone={
+              planRow.endingCoverage >= planRow.targetWeeks
+                ? 'positive'
+                : planRow.endingCoverage < 0
+                  ? 'negative'
+                  : 'warning'
+            }
+          >
             {weeks(planRow.endingCoverage)} cover
           </Badge>
           <span className="text-[11.5px] text-ink-faint">against {planRow.targetWeeks}w target</span>
-          {derivation.wasRationed && (
-            <Badge tone="warning" title="The line could not cover every size's build needed this week">
-              rationed
+          {derivation.capacityConstrained && (
+            <Badge tone="warning" title="The line's build needed exceeded its shared capacity this week">
+              capacity constrained
             </Badge>
           )}
         </div>
       </header>
 
       <div className="flex flex-col gap-5 px-5 py-5">
-        <Steps title="Build needed" steps={derivation.need} />
-        <Divider />
-        <Steps title="Planned build" steps={derivation.allocation} />
+        <section>
+          <Question n={1} title="How much should we build?" />
+          <Equation terms={derivation.need} />
+        </section>
 
-        {derivation.wasRationed && (
-          <div className="rounded-lg border border-warn/25 bg-warn-soft px-3 py-2.5">
-            <div className="text-[12px] font-medium text-warn">
-              {RATIONING_LABELS[rule]} decided this split
+        <Divider />
+
+        <section>
+          <Question n={2} title="How much can we actually build?" />
+
+          {derivation.capacityConstrained ? (
+            <>
+              <p className="mt-2 text-[12px] leading-snug text-ink-muted">
+                {RATIONING_LABELS[rule]} · {RATIONING_DESCRIPTIONS[rule]}
+              </p>
+              <PeerList peers={derivation.peers} rule={rule} onSelectSku={onSelectSku} />
+              <div className="mt-3 rounded-lg border border-edge bg-raised/60 px-3 py-2.5">
+                <Equation terms={derivation.capacity} compact />
+                {shorted && (
+                  <p className="mt-2 text-[11.5px] text-ink-faint">
+                    This SKU needed {units(planRow.desiredBuild)} and received {units(planRow.build)}.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="mt-2.5">
+              <Equation terms={derivation.capacity} />
+              <p className="mt-2 text-[11.5px] text-ink-faint">
+                Within capacity, so every size received its build needed.
+              </p>
             </div>
-            <p className="mt-1 text-[12px] leading-relaxed text-ink-muted">
-              {RATIONING_DESCRIPTIONS[rule]}
-            </p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-              This SKU opened the week at {weeks(planRow.startingCoverage)} against a{' '}
-              {planRow.targetWeeks}w target, so it was{' '}
-              <span className="tnum text-ink-muted">
-                {weeks(planRow.startingCoverage - planRow.targetWeeks)}
-              </span>{' '}
-              below it.
-            </p>
-          </div>
-        )}
+          )}
+        </section>
 
         <Divider />
-        <Steps title="Ending position" steps={derivation.outcome} />
 
-        {planRow.absorbedByDealers > 0 && (
-          <div className="rounded-lg border border-accent/25 bg-accent-soft px-3 py-2.5">
-            <div className="text-[12px] font-medium text-accent-bright">Dealer stock covered part of demand</div>
-            <p className="mt-1 text-[12px] leading-relaxed text-ink-muted">
-              <span className="tnum">{units(planRow.grossForecast)}</span> total demand ·{' '}
-              <span className="tnum">{units(planRow.absorbedByDealers)}</span> covered by dealer stock ·{' '}
-              <span className="tnum">{units(planRow.forecast)}</span> remaining factory demand.
+        <section>
+          <Question n={3} title="Where does that leave us?" />
+          <Equation terms={derivation.outcome} />
+          <div className="mt-3 rounded-lg border border-edge px-3 py-2.5">
+            <div className="text-[11px] text-ink-faint">Shipped against</div>
+            <Equation terms={derivation.shippedAgainst} compact />
+            <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
+              Backlog and current plant demand draw on the same stock; the engine does not order them.
             </p>
           </div>
-        )}
-
-        {planRow.endingBacklog > 0 && (
-          <div className="rounded-lg border border-neg/25 bg-neg-soft px-3 py-2.5">
-            <div className="text-[12px] font-medium text-neg">Still owed after this week</div>
-            <p className="mt-1 text-[12px] leading-relaxed text-ink-muted">
-              <span className="tnum">{units(planRow.endingBacklog)}</span> units remain unfulfilled and
-              carry into next week.
+          {derivation.endingBacklog > 0 && (
+            <p className="mt-2.5 text-[12px] text-neg">
+              <span className="tnum font-medium">{units(derivation.endingBacklog)}</span> still owed —
+              carries into next week.
             </p>
-          </div>
-        )}
+          )}
+        </section>
       </div>
     </aside>
   )
 }
 
-function Steps({ title, steps }: { title: string; steps: DerivationStep[] }) {
+function Question({ n, title }: { n: number; title: string }) {
   return (
-    <div>
-      <h3 className="text-[12.5px] font-medium text-ink">{title}</h3>
-      <dl className="mt-2.5 flex flex-col">
-        {steps.map((step, index) => (
-          <div
-            key={`${step.label}-${index}`}
-            className={cx(
-              'flex items-start gap-3 py-1.5',
-              step.emphasis && 'mt-1 border-t border-edge pt-2.5',
-            )}
-          >
+    <h3 className="flex items-baseline gap-2 text-[12.5px] font-medium text-ink">
+      <span className="text-ink-faint tnum">{n}.</span>
+      {title}
+    </h3>
+  )
+}
+
+function Equation({ terms, compact = false }: { terms: EquationTerm[]; compact?: boolean }) {
+  return (
+    <dl className={cx('flex flex-col', compact ? 'mt-1.5' : 'mt-2.5')}>
+      {terms.map((term, index) => (
+        <div
+          key={`${term.label}-${index}`}
+          className={cx(
+            'flex items-start gap-2.5',
+            compact ? 'py-1' : 'py-1.5',
+            term.role === 'result' && 'mt-1 border-t border-edge pt-2',
+          )}
+        >
+          <span className="w-3 shrink-0 text-center text-[12px] text-ink-faint">{term.operator}</span>
+          <dt className="min-w-0 flex-1">
             <span
               className={cx(
-                'w-3 shrink-0 text-center text-[12px]',
-                step.operator === '=' ? 'text-ink-faint' : 'text-ink-faint',
+                compact ? 'text-[12px]' : 'text-[12.5px]',
+                term.role === 'result' ? 'text-ink' : 'text-ink-muted',
               )}
             >
-              {step.operator}
+              {term.label}
             </span>
-            <dt className="flex-1">
-              <span className={cx('text-[12.5px]', step.emphasis ? 'text-ink' : 'text-ink-muted')}>
-                {step.label}
-              </span>
-              {step.note && <span className="block text-[11.5px] text-ink-faint">{step.note}</span>}
-            </dt>
-            <dd
-              className={cx(
-                'shrink-0 tnum text-[12.5px]',
-                step.emphasis ? 'font-medium text-ink' : 'text-ink-muted',
+            {term.note && <span className="block text-[11px] text-ink-faint">{term.note}</span>}
+          </dt>
+          <dd
+            className={cx(
+              'shrink-0 tnum',
+              compact ? 'text-[12px]' : 'text-[12.5px]',
+              term.role === 'result' && 'font-medium',
+              valueTone(term.role),
+            )}
+          >
+            {units(term.value)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function valueTone(role: TermRole): string {
+  switch (role) {
+    case 'obligation':
+      return 'text-neg/90'
+    case 'supply':
+      return 'text-pos/90'
+    case 'result':
+      return 'text-ink'
+    default:
+      return 'text-ink-muted'
+  }
+}
+
+function PeerList({
+  peers,
+  rule,
+  onSelectSku,
+}: {
+  peers: PeerStanding[]
+  rule: RationingRule
+  onSelectSku: (sku: string) => void
+}) {
+  if (peers.length < 2) return null
+
+  return (
+    <div className="mt-2.5 overflow-hidden rounded-lg border border-edge">
+      <div className="border-b border-edge bg-raised/40 px-3 py-1.5 text-[11px] text-ink-faint">
+        Same line this week
+        {rule === 'worst-first' ? ' · ranked by weeks below target' : null}
+      </div>
+      <ul className="divide-y divide-edge">
+        {peers.map((peer) => (
+          <li
+            key={peer.sku}
+            className={cx(
+              'flex items-center gap-2 px-3 py-2',
+              peer.isSelected && 'bg-accent-soft/50',
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              {peer.isSelected ? (
+                <span className="text-[12.5px] font-medium tnum text-ink">
+                  {peer.sku}{' '}
+                  <span className="font-normal text-ink-faint">{peer.size}</span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelectSku(peer.sku)}
+                  className="text-left text-[12.5px] tnum text-accent-bright underline decoration-dotted underline-offset-2 transition-colors hover:text-ink"
+                >
+                  {peer.sku}{' '}
+                  <span className="text-ink-faint no-underline">{peer.size}</span>
+                </button>
               )}
-            >
-              {units(step.value)}
-            </dd>
-          </div>
+              <div className="mt-0.5 text-[11px] text-ink-faint tnum">
+                {weeks(peer.startingCoverage)} / {peer.targetWeeks}w target
+                <span className="mx-1.5 text-edge-strong">·</span>
+                <span className={peer.gap < 0 ? 'text-neg' : 'text-pos'}>
+                  {peer.gap >= 0 ? '+' : ''}
+                  {weeks(peer.gap)}
+                </span>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[12px] tnum text-ink">{units(peer.build)}</div>
+              <div className="text-[10.5px] text-ink-faint">
+                {peer.isSelected
+                  ? 'planned · selected'
+                  : peer.prioritized && rule === 'worst-first'
+                    ? 'planned · prioritized'
+                    : `planned · need ${units(peer.desiredBuild)}`}
+              </div>
+            </div>
+          </li>
         ))}
-      </dl>
+      </ul>
     </div>
   )
 }

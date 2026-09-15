@@ -1,93 +1,206 @@
 /**
- * Turns one plan row back into the arithmetic that produced it.
+ * Turns one plan row into the arithmetic the explainability drawer shows.
  *
- * Part 3 has to show clients the math, so the math is spelled out here rather
- * than assembled inside a component. It is derived purely from the row, which
- * means the explanation cannot drift away from the number it explains.
+ * Purely derived from the row and its line-week peers — never recomputes the
+ * engine. That keeps the drawer locked to the number on screen.
  */
-import { LINE_LABELS } from '../domain'
-import type { LineWeek, PlanRow } from './index'
-import { RATIONING_LABELS, type RationingRule } from './policy'
+import type { PlanRow, LineWeek } from './index'
 
-export interface DerivationStep {
+export type TermRole = 'obligation' | 'supply' | 'result' | 'neutral'
+
+export interface EquationTerm {
   label: string
   value: number
-  /** How this line combines with the running total above it. */
   operator: '+' | '\u2212' | '=' | ''
+  role: TermRole
   note?: string
-  emphasis?: boolean
+}
+
+export interface PeerStanding {
+  sku: string
+  size: PlanRow['size']
+  startingCoverage: number
+  targetWeeks: number
+  /** Weeks below (negative) or above (positive) target at week start. */
+  gap: number
+  desiredBuild: number
+  build: number
+  startingBacklog: number
+  forecast: number
+  isSelected: boolean
+  /** Furthest below target when ranking by worst-off-first urgency. */
+  prioritized: boolean
 }
 
 export interface Derivation {
-  /** Why this SKU asked for the units it asked for. */
-  need: DerivationStep[]
-  /** Why it received what it received. */
-  allocation: DerivationStep[]
-  /** Where the week left it. */
-  outcome: DerivationStep[]
-  /** True when the line could not build everything its SKUs asked for. */
-  wasRationed: boolean
+  need: EquationTerm[]
+  capacity: EquationTerm[]
+  outcome: EquationTerm[]
+  /** Obligations that shipped draws against: backlog + current plant demand. */
+  shippedAgainst: EquationTerm[]
+  capacityConstrained: boolean
+  peers: PeerStanding[]
+  endingBacklog: number
+  absorbedByDealers: number
+  grossForecast: number
+  forecast: number
 }
 
-export function derivationOf(row: PlanRow, lineWeek: LineWeek, rule: RationingRule): Derivation {
-  const wasRationed = lineWeek.desiredBuild > lineWeek.capacity
+/**
+ * Peers on the same line and week, ordered the way worst-off-first would rank
+ * them: furthest below target first. Used to explain who got capacity.
+ */
+export function peersOnLine(selected: PlanRow, lineRows: PlanRow[]): PeerStanding[] {
+  const peers = lineRows
+    .filter((row) => row.weekStart === selected.weekStart && row.line === selected.line)
+    .map((row) => ({
+      sku: row.sku,
+      size: row.size,
+      startingCoverage: row.startingCoverage,
+      targetWeeks: row.targetWeeks,
+      gap: row.startingCoverage - row.targetWeeks,
+      desiredBuild: row.desiredBuild,
+      build: row.build,
+      startingBacklog: row.startingBacklog,
+      forecast: row.forecast,
+      isSelected: row.sku === selected.sku,
+      prioritized: false,
+    }))
+    .sort((a, b) => {
+      const gap = a.gap - b.gap
+      if (Math.abs(gap) > 1e-9) return gap
+      return b.forecast - a.forecast
+    })
 
-  const need: DerivationStep[] = [
+  if (peers.length > 0) peers[0].prioritized = true
+  return peers
+}
+
+export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow[]): Derivation {
+  const capacityConstrained = lineWeek.desiredBuild > lineWeek.capacity
+  const obligations = row.startingBacklog + row.forecast
+
+  const need: EquationTerm[] = [
     {
-      label: `Demand over the next ${row.targetWeeks} weeks`,
+      label: 'Forward cover',
       value: row.targetInventory,
       operator: '',
-      note: `Target cover for ${LINE_LABELS[row.line]} is ${row.targetWeeks} weeks`,
+      role: 'obligation',
+      note: `${row.targetWeeks}w target cover`,
     },
     {
-      label: 'Units already owed to customers',
+      label: 'Backlog',
       value: row.startingBacklog,
       operator: '+',
-      note: row.startingBacklog > 0 ? 'Backlog is netted out, so it has to be rebuilt too' : undefined,
+      role: 'obligation',
     },
     {
-      label: "This week's demand",
+      label: 'Current plant demand',
       value: row.forecast,
       operator: '+',
+      role: 'obligation',
       note:
         row.absorbedByDealers > 0
           ? `${row.absorbedByDealers.toLocaleString()} of ${row.grossForecast.toLocaleString()} covered by dealer stock`
           : undefined,
     },
-    { label: 'Stock already on hand', value: row.startingInventory, operator: '\u2212' },
-    { label: 'Build needed', value: row.desiredBuild, operator: '=', emphasis: true },
+    {
+      label: 'Inventory',
+      value: row.startingInventory,
+      operator: '\u2212',
+      role: 'supply',
+    },
+    {
+      label: 'Build needed',
+      value: row.desiredBuild,
+      operator: '=',
+      role: 'result',
+    },
   ]
 
-  const allocation: DerivationStep[] = [
-    { label: 'Build needed', value: row.desiredBuild, operator: '' },
-    {
-      label: `Line capacity this week`,
-      value: lineWeek.capacity,
-      operator: '',
-      note: `Shared across every size on ${LINE_LABELS[row.line]}`,
-    },
+  const capacity: EquationTerm[] = [
     {
       label: 'Build needed for the line',
       value: lineWeek.desiredBuild,
       operator: '',
-      note: wasRationed
-        ? `Over capacity by ${(lineWeek.desiredBuild - lineWeek.capacity).toLocaleString()} units, so ${RATIONING_LABELS[rule].toLowerCase()} decided the split`
-        : 'Within capacity, so every size received its build needed',
+      role: 'obligation',
     },
-    { label: 'Planned build', value: row.build, operator: '=', emphasis: true },
+    {
+      label: 'Shared line capacity',
+      value: lineWeek.capacity,
+      operator: '',
+      role: 'supply',
+      note: capacityConstrained
+        ? `Short ${Math.max(0, lineWeek.desiredBuild - lineWeek.capacity).toLocaleString()} units`
+        : 'Enough for every size',
+    },
+    {
+      label: 'Planned build',
+      value: row.build,
+      operator: '=',
+      role: 'result',
+    },
   ]
 
-  const outcome: DerivationStep[] = [
-    { label: 'Starting inventory', value: row.startingInventory, operator: '' },
-    { label: 'Planned build', value: row.build, operator: '+' },
+  const outcome: EquationTerm[] = [
     {
-      label: 'Units shipped',
+      label: 'Starting inventory',
+      value: row.startingInventory,
+      operator: '',
+      role: 'supply',
+    },
+    {
+      label: 'Planned build',
+      value: row.build,
+      operator: '+',
+      role: 'supply',
+    },
+    {
+      label: 'Shipped',
       value: row.shipped,
       operator: '\u2212',
-      note: 'Backlog and this week\u2019s demand draw on the same stock',
+      role: 'obligation',
+      note: `Against ${obligations.toLocaleString()} obligations`,
     },
-    { label: 'Ending inventory', value: row.endingInventory, operator: '=', emphasis: true },
+    {
+      label: 'Ending inventory',
+      value: row.endingInventory,
+      operator: '=',
+      role: 'result',
+    },
   ]
 
-  return { need, allocation, outcome, wasRationed }
+  const shippedAgainst: EquationTerm[] = [
+    {
+      label: 'Backlog',
+      value: row.startingBacklog,
+      operator: '',
+      role: 'obligation',
+    },
+    {
+      label: 'Current plant demand',
+      value: row.forecast,
+      operator: '+',
+      role: 'obligation',
+    },
+    {
+      label: 'Obligations',
+      value: obligations,
+      operator: '=',
+      role: 'result',
+    },
+  ]
+
+  return {
+    need,
+    capacity,
+    outcome,
+    shippedAgainst,
+    capacityConstrained,
+    peers: peersOnLine(row, lineRows),
+    endingBacklog: row.endingBacklog,
+    absorbedByDealers: row.absorbedByDealers,
+    grossForecast: row.grossForecast,
+    forecast: row.forecast,
+  }
 }

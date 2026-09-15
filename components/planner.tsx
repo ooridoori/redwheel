@@ -82,16 +82,16 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-edge px-5 py-3">
-        <div className="flex items-baseline gap-2.5">
+    <div className="flex min-h-dvh flex-col bg-canvas lg:h-dvh lg:overflow-hidden">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-edge px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
           <h1 className="text-[15px] font-medium tracking-[-0.01em]">Redwheel Production Planner</h1>
           <span className="text-[11.5px] text-ink-faint tnum">
             snapshot {weekLabelLong(inputs.asOf)} · {inputs.products.length} SKUs · 4 lines
           </span>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <ProductGroupFilter
             scope={scope}
             onChange={(next) => {
@@ -137,28 +137,33 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1" aria-busy={isRunning}>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
+      <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row" aria-busy={isRunning}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4 lg:overflow-hidden">
           {isRunning ? (
             <KpiRowSkeleton />
           ) : (
             <KpiRow plan={plan} previousPlan={previousPlan} scope={scope} />
           )}
 
-          <div className="grid h-[264px] shrink-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(340px,1.1fr)_1.8fr]">
-            <section className="min-h-0 rounded-xl border border-edge bg-surface px-4 py-3">
-              {isRunning ? <InsightSkeleton /> : <InsightPanel plan={plan} scope={scope} />}
-            </section>
-            <section className="min-h-0 rounded-xl border border-edge bg-surface px-4 py-3">
+          {/*
+            On small screens insight and chart stack and each needs its own height —
+            sharing one 264px row left the chart with ~0px of plot area. Chart comes
+            first on mobile because it is the screen's centrepiece.
+          */}
+          <div className="grid shrink-0 grid-cols-1 gap-3 lg:h-[264px] lg:grid-cols-[minmax(340px,1.1fr)_1.8fr]">
+            <section className="order-1 flex h-[260px] min-h-0 flex-col rounded-xl border border-edge bg-surface px-4 py-3 lg:order-2 lg:h-auto lg:min-h-0">
               {isRunning ? (
                 <ChartSkeleton />
               ) : (
                 <WosChart plan={plan} scope={scope} visibleWeeks={visibleWeeks} />
               )}
             </section>
+            <section className="order-2 max-h-[200px] min-h-0 overflow-y-auto rounded-xl border border-edge bg-surface px-4 py-3 lg:order-1 lg:max-h-none">
+              {isRunning ? <InsightSkeleton /> : <InsightPanel plan={plan} scope={scope} />}
+            </section>
           </div>
 
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-edge bg-surface">
+          <section className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-xl border border-edge bg-surface lg:min-h-0">
             <div className="flex shrink-0 items-baseline justify-between gap-3 border-b border-edge px-4 py-2.5">
               <h2 className="text-[13px] font-medium text-ink">Weekly build plan</h2>
               <span className="text-[11px] text-ink-faint tnum">
@@ -182,11 +187,42 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
         </div>
 
         {selected && (
-          <DerivationDrawer
-            row={selected}
-            rule={plan.policy.rationing}
-            onClose={() => setSelected(null)}
-          />
+          <>
+            <button
+              type="button"
+              aria-label="Close explanation"
+              className="fixed inset-0 z-40 bg-canvas/60 lg:hidden"
+              onClick={() => setSelected(null)}
+            />
+            <DerivationDrawer
+              row={selected}
+              lineRows={plan.rows.filter(
+                (candidate) =>
+                  candidate.weekStart === selected.weekStart && candidate.line === selected.line,
+              )}
+              rule={plan.policy.rationing}
+              onClose={() => setSelected(null)}
+              onSelectSku={(sku) => {
+                const next =
+                  tableRows.find(
+                    (candidate) => candidate.weekStart === selected.weekStart && candidate.sku === sku,
+                  ) ??
+                  (() => {
+                    const planRow = plan.rows.find(
+                      (candidate) =>
+                        candidate.weekStart === selected.weekStart && candidate.sku === sku,
+                    )
+                    if (!planRow) return null
+                    return (
+                      buildTableRows(plan, planRow.line, [planRow.weekStart]).find(
+                        (candidate) => candidate.sku === sku,
+                      ) ?? null
+                    )
+                  })()
+                if (next) setSelected(next)
+              }}
+            />
+          </>
         )}
       </div>
     </div>
