@@ -13,8 +13,12 @@ interface Spec {
   size: Product['size']
   onHand?: number
   backlog?: number
-  /** Flat weekly forecast for this SKU. */
+  /** Flat weekly forecast for this SKU, across all channels. */
   demand: number
+  /** How much of `demand` is dealer-channel. Defaults to none. */
+  dealerDemand?: number
+  /** Units already sitting on dealer floors. */
+  dealerOnHand?: number
 }
 
 /**
@@ -47,14 +51,16 @@ function makeInputs(options: {
   }))
 
   const demand: PlanningInputs['demand'] = {}
+  const dealerDemand: PlanningInputs['demand'] = {}
   const openingStock: Record<string, number> = {}
   const dealerStock: Record<string, number> = {}
   const backlog: Record<string, number> = {}
 
   for (const spec of specs) {
     demand[spec.sku] = Object.fromEntries(allWeeks.map((week) => [week, spec.demand]))
+    dealerDemand[spec.sku] = Object.fromEntries(allWeeks.map((week) => [week, spec.dealerDemand ?? 0]))
     openingStock[spec.sku] = spec.onHand ?? 0
-    dealerStock[spec.sku] = 0
+    dealerStock[spec.sku] = spec.dealerOnHand ?? 0
     backlog[spec.sku] = spec.backlog ?? 0
   }
 
@@ -70,7 +76,7 @@ function makeInputs(options: {
     backlog,
     backlogByChannel: { dtc: 0, dealer: 0, commercial: 0 },
     demand,
-    demandByChannel: { dtc: {}, dealer: {}, commercial: {} },
+    demandByChannel: { dtc: {}, dealer: dealerDemand, commercial: {} },
     capacity: {
       'road-base': { ...emptyByWeek },
       'road-carbon': { ...emptyByWeek },
@@ -276,17 +282,113 @@ describe('carrying state forward', () => {
   })
 })
 
-describe('dealer stock policy', () => {
-  it('ignores dealer-held stock by default', () => {
-    const inputs = makeInputs({ specs: [{ sku: 'A', size: 'M', demand: 10, onHand: 0 }], capacity: 10_000 })
-    inputs.dealerStock.A = 500
+describe('dealer stock', () => {
+  /** Half of demand is dealer-channel, and dealers hold 4 weeks of it on their floors. */
+  const withDealers = () =>
+    makeInputs({
+      specs: [{ sku: 'A', size: 'M', demand: 20, dealerDemand: 10, dealerOnHand: 40, onHand: 0 }],
+      capacity: 10_000,
+    })
 
-    const excluded = runAllocation(inputs, policyWith({ includeDealerStock: false }))
-    const included = runAllocation(inputs, policyWith({ includeDealerStock: true }))
+  it('lets dealer floor stock serve dealer demand, reducing what the plant builds', () => {
+    const plan = runAllocation(withDealers())
+    const first = plan.rows[0]
 
-    expect(excluded.rows[0].startingInventory).toBe(0)
-    expect(included.rows[0].startingInventory).toBe(500)
-    expect(included.rows[0].desiredBuild).toBeLessThan(excluded.rows[0].desiredBuild)
+    expect(first.grossForecast).toBe(20)
+    expect(first.absorbedByDealers).toBe(10)
+    expect(first.forecast).toBe(10)
+  })
+
+  it('never turns dealer stock into inventory Redwheel can allocate', () => {
+    const plan = runAllocation(withDealers())
+    expect(plan.rows[0].startingInventory).toBe(0)
+  })
+
+  it('runs the buffer dry and then sends all dealer demand to the plant', () => {
+    const plan = runAllocation(withDealers())
+    const rows = plan.rows.filter((row) => row.sku === 'A')
+
+    // 40 units of floor stock cover 4 weeks of 10-unit dealer demand.
+    expect(rows.slice(0, 4).map((row) => row.absorbedByDealers)).toEqual([10, 10, 10, 10])
+    expect(rows[4].absorbedByDealers).toBe(0)
+    expect(rows[4].forecast).toBe(20)
+
+    const absorption = plan.dealerBuffer.absorption.find((entry) => entry.sku === 'A')!
+    expect(absorption.unitsAbsorbed).toBe(40)
+    expect(absorption.weeksCovered).toBe(4)
+    expect(absorption.exhaustedWeek).toBe(addWeeks(START, 3))
+  })
+
+  it('absorbs no more than the dealer channel actually demands', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [{ sku: 'A', size: 'M', demand: 20, dealerDemand: 0, dealerOnHand: 500 }],
+        capacity: 10_000,
+      }),
+    )
+    expect(plan.dealerBuffer.totalAbsorbed).toBe(0)
+    expect(plan.rows[0].forecast).toBe(20)
+  })
+
+  it('leaves backlog alone — owed units still have to be built', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [{ sku: 'A', size: 'M', demand: 20, dealerDemand: 10, dealerOnHand: 500, backlog: 60 }],
+        capacity: 10_000,
+      }),
+    )
+    expect(plan.rows[0].startingBacklog).toBe(60)
+  })
+
+  it('the two alternative treatments bracket the default', () => {
+    const inputs = withDealers()
+    const segregated = runAllocation(inputs, policyWith({ dealerStock: 'channel-segregated' }))
+    const excluded = runAllocation(inputs, policyWith({ dealerStock: 'exclude' }))
+    const central = runAllocation(inputs, policyWith({ dealerStock: 'central' }))
+
+    // Ignoring the file makes the plant look busier; pooling makes it look richer.
+    expect(excluded.rows[0].forecast).toBe(20)
+    expect(excluded.rows[0].desiredBuild).toBeGreaterThan(segregated.rows[0].desiredBuild)
+    expect(central.rows[0].startingInventory).toBe(40)
+    expect(central.rows[0].desiredBuild).toBeLessThan(excluded.rows[0].desiredBuild)
+  })
+})
+
+describe('forecast mix as tie-breaker', () => {
+  it('serves the bigger share of the line when two SKUs are equally short', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [
+          { sku: 'SMALL', size: 'S', demand: 10, onHand: 0 },
+          { sku: 'BIG', size: 'M', demand: 40, onHand: 0 },
+        ],
+        capacity: 100,
+      }),
+    )
+    const week = plan.weeks[0]
+    const at = (sku: string) => plan.rows.find((row) => row.weekStart === week && row.sku === sku)!
+
+    // Both open at zero cover, so forecast mix breaks the tie.
+    expect(at('SMALL').startingCoverage).toBe(at('BIG').startingCoverage)
+    expect(at('BIG').build).toBe(100)
+    expect(at('SMALL').build).toBe(0)
+  })
+
+  it('still lets urgency beat forecast mix', () => {
+    const plan = runAllocation(
+      makeInputs({
+        specs: [
+          { sku: 'SMALL', size: 'S', demand: 10, onHand: 0, backlog: 200 },
+          { sku: 'BIG', size: 'M', demand: 40, onHand: 40 * (TARGET_WEEKS + 2) },
+        ],
+        capacity: 100,
+      }),
+    )
+    const week = plan.weeks[0]
+    const at = (sku: string) => plan.rows.find((row) => row.weekStart === week && row.sku === sku)!
+
+    expect(at('SMALL').build).toBe(100)
+    expect(at('BIG').build).toBe(0)
   })
 })
 

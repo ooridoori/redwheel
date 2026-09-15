@@ -139,7 +139,13 @@ function describeTranslation(): DataNote[] {
       severity: 'warning',
       source: 'assumption',
       message:
-        'Dealer-held stock is excluded from Redwheel\u2019s supply position. Those units are already sold and cannot be reallocated, so counting them would overstate coverage. Reported separately as a KPI.',
+        'Dealer-held stock serves dealer-channel demand only. It reduces what the plant must build until it runs out, but never counts toward Redwheel\u2019s own cover \u2014 a bike on a dealer floor cannot fill a DTC order or a commercial PO. Ignoring the file or pooling it with plant stock are both selectable alternatives.',
+    },
+    {
+      severity: 'warning',
+      source: 'assumption',
+      message:
+        'Capacity and cover targets are stated per production line, but stock, backlog and forecast are per SKU. Builds are therefore ranked and allocated at SKU level, worst-off first by weeks below target, with forecast mix only breaking ties.',
     },
   ]
 }

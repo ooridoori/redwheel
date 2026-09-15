@@ -48,21 +48,45 @@ Weeks of supply is inventory divided by weekly demand — how long until you run
 out. Redwheel wants 8 weeks of cover on road bikes through 2027 rising to 10 in
 2028, 12 on base mountain bikes, and 15 on carbon mountain bikes, all measured
 after netting out the units they already owe. Four production lines each have a
-weekly ceiling that changes over the horizon. The job is to decide how many of
+weekly ceiling that changes over the horizon, and each line carries either two
+or three sizes that compete for it: road-base and mtb-base have M and L,
+road-carbon and mtb-carbon have S, M and L. The job is to decide how many of
 each SKU to build in each of the 121 weeks from 2026-09-07 to 2028-12-25
 without exceeding those ceilings.
+
+## What the plan concludes
+
+All four lines reach their targets inside the horizon, and every one of the
+5,931 units owed at the snapshot is delivered by 2026-12-21. Carbon mountain
+bikes take until **2027-08-23** to reach 15 weeks of cover — nearly a year —
+and that line runs at 78% of capacity to get there.
+
+Two results worth noting. At line level, mtb-base sits at or above target in
+**121 of 121 weeks** and looks flawless; one level down, its large size opens
+9.3 weeks short while the medium holds 130 weeks of cover and is correctly
+built zero times in two years. And the rationing rule changes who waits, not
+how much gets built — all three rules build 92,369 units at 75% utilization,
+because capacity, not policy, is the binding constraint.
 
 ## What the data says, and what we assumed
 
 `npm run build:data` prints a set of data notes, separated into what the files
 state and where we exercised judgement. The consequential ones:
 
-- **Dealer-held stock is excluded from the supply position.** Those 2,000 units
-  are already sold into bike shops and cannot be reallocated, so counting them
-  would overstate coverage. Reported separately instead.
-- **Targets are stated per class and trim, but stock and forecast are per SKU,**
-  and so is nothing else. Capacity is also per line. The engine therefore plans
-  at line level and splits across sizes by forecast mix.
+- **Dealer-held stock serves dealer demand only.** The 2,000 units on dealer
+  floors are neither ignored nor pooled with plant inventory. They absorb
+  dealer-channel demand until they run out — 2,000 units Redwheel never has to
+  build — but they never count toward Redwheel's own cover, because a bike at
+  Summit Cycles cannot fill a DTC order or a commercial PO. Both alternative
+  treatments are selectable in the UI: ignoring the file overstates the demand
+  reaching the plant, pooling it overstates cover.
+- **Targets and capacity are stated per line, but the shortage is not.**
+  Redwheel states cover targets by class and trim, and capacity by production
+  line, while stock, backlog and forecast are per SKU. The engine therefore
+  ranks and allocates at **SKU level**, worst-off first by weeks below target.
+  Forecast mix — a SKU's share of its line's demand — is only a tie-breaker;
+  as the primary split it would let a size sitting at 10 weeks of cover keep
+  taking units while its starving sibling waited.
 - **Forecasts run 35 weeks past the capacity horizon.** The plan ends with
   capacity in December 2028, but the extra forecast is needed to measure weeks
   of supply for the final weeks of the plan.
@@ -70,6 +94,9 @@ state and where we exercised judgement. The consequential ones:
   as `10/31/2025`, where the first field cannot be a day.
 - **Dealer stock counts span six different days**, so that file is a
   self-reported roll-up rather than a synchronized snapshot.
+- **Backlog is not reduced by dealer floor stock.** Unfulfilled dealer orders
+  are units Redwheel owes; if a dealer could have served them from their own
+  floor, they would not still be waiting.
 
 ## Opening position
 

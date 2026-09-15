@@ -6,10 +6,12 @@
  * what it is" always has an answer that points at a policy rather than at code.
  */
 import type { LineId } from '../domain'
+import type { DealerStockTreatment } from './dealer-buffer'
 
 /**
- * How to divide a line's weekly units when every SKU on it wants more than
- * there is.
+ * How to divide a line's weekly units when the SKUs on it want more than there
+ * is. Every rule ranks and allocates at SKU level, because a line's shortage is
+ * never evenly spread across its sizes.
  *
  * - `worst-first` serves whoever is furthest below target until they catch up.
  *   Fixes the sharpest shortage soonest; others wait.
@@ -17,6 +19,11 @@ import type { LineId } from '../domain'
  *   Nobody is starved, nobody is fixed quickly.
  * - `backlog-first` clears units already owed to customers before building any
  *   buffer. Best for people waiting today, slowest to reach target cover.
+ *
+ * Forecast mix — each SKU's share of its line's forecast demand — is only a
+ * tie-breaker. Using it as the primary split would contradict `worst-first`
+ * entirely: a size comfortably at 10 weeks of cover would keep taking its
+ * forecast share while its starving sibling waited.
  */
 export type RationingRule = 'worst-first' | 'proportional' | 'backlog-first'
 
@@ -30,13 +37,8 @@ export interface Policy {
   /** Target weeks of cover per line, in ascending date order. */
   targets: Record<LineId, TargetRule[]>
   rationing: RationingRule
-  /**
-   * Whether dealer-held stock counts toward Redwheel's supply position.
-   *
-   * Off by default: those units are already sold into bike shops and cannot be
-   * reallocated, so counting them would overstate cover.
-   */
-  includeDealerStock: boolean
+  /** What the units sitting in dealer shops are allowed to do. See `dealer-buffer.ts`. */
+  dealerStock: DealerStockTreatment
 }
 
 /**
@@ -59,7 +61,7 @@ export const DEFAULT_POLICY: Policy = {
     'mtb-carbon': [{ from: '2026-01-01', weeks: 15 }],
   },
   rationing: 'worst-first',
-  includeDealerStock: false,
+  dealerStock: 'channel-segregated',
 }
 
 export const RATIONING_LABELS: Record<RationingRule, string> = {

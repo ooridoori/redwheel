@@ -18,6 +18,7 @@ import type { LineId, Product } from '../domain'
 import { LINES } from '../domain'
 import type { PlanningInputs } from '../planning-inputs'
 import { coverageWeeks, targetInventory } from './coverage'
+import { demandOnPlant, type DemandOnPlant } from './dealer-buffer'
 import { DEFAULT_POLICY, targetWeeksFor, type Policy, type RationingRule } from './policy'
 
 /** One SKU, in one week. The row behind every cell in the plan table. */
@@ -26,8 +27,15 @@ export interface PlanRow {
   sku: string
   line: LineId
   size: Product['size']
-  /** Forecast demand for this SKU this week, across all three channels. */
+  /**
+   * Demand the plant must serve this week: total forecast less whatever dealer
+   * floor stock absorbed. This is the number the build decision is made on.
+   */
   forecast: number
+  /** Total forecast across all three channels, before the dealer buffer. */
+  grossForecast: number
+  /** Dealer-channel demand met from dealer floor stock instead of by building. */
+  absorbedByDealers: number
   startingInventory: number
   startingBacklog: number
   /** Stock less what we owe, at the start of the week. */
@@ -65,6 +73,8 @@ export interface LineWeek {
   forecast: number
   startingInventory: number
   startingBacklog: number
+  /** Cover for the line as a whole at week start, measured against demand from this week on. */
+  startingCoverage: number
   targetWeeks: number
   endingInventory: number
   endingBacklog: number
@@ -109,6 +119,8 @@ export interface BuildPlan {
   rows: PlanRow[]
   lineWeeks: LineWeek[]
   kpis: PlanKpis
+  /** What the dealer buffer absorbed, and when it ran dry. */
+  dealerBuffer: DemandOnPlant
 }
 
 interface Position {
@@ -119,6 +131,8 @@ interface Position {
 interface Request {
   product: Product
   forecast: number
+  grossForecast: number
+  absorbedByDealers: number
   forwardFromThisWeek: number[]
   forwardFromNextWeek: number[]
   position: Position
@@ -128,7 +142,8 @@ interface Request {
 }
 
 export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_POLICY): BuildPlan {
-  const series = demandSeries(inputs)
+  const dealerBuffer = demandOnPlant(inputs, policy.dealerStock)
+  const series = dealerBuffer.net
   const weekIndex = new Map(inputs.forecastWeeks.map((week, index) => [week, index]))
   const productsByLine = groupByLine(inputs.products)
   const positions = openingPositions(inputs, policy)
@@ -151,11 +166,14 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
         const forwardFromThisWeek = (series[product.sku] ?? []).slice(index)
         const forwardFromNextWeek = forwardFromThisWeek.slice(1)
         const forecast = forwardFromThisWeek[0] ?? 0
+        const grossForecast = (dealerBuffer.gross[product.sku] ?? [])[index] ?? 0
         const needed = targetInventory(forwardFromNextWeek, targetWeeks)
 
         return {
           product,
           forecast,
+          grossForecast,
+          absorbedByDealers: grossForecast - forecast,
           forwardFromThisWeek,
           forwardFromNextWeek,
           position,
@@ -176,6 +194,7 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
       let lineEndingInventory = 0
       let lineEndingBacklog = 0
       const lineForwardNext: number[] = []
+      const lineForwardNow: number[] = []
 
       for (const request of requests) {
         const build = builds[request.product.sku] ?? 0
@@ -195,6 +214,8 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
           line,
           size: request.product.size,
           forecast,
+          grossForecast: request.grossForecast,
+          absorbedByDealers: request.absorbedByDealers,
           startingInventory,
           startingBacklog,
           startingNet: startingInventory - startingBacklog,
@@ -221,6 +242,7 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
         lineEndingInventory += endingInventory
         lineEndingBacklog += endingBacklog
         accumulate(lineForwardNext, request.forwardFromNextWeek)
+        accumulate(lineForwardNow, request.forwardFromThisWeek)
       }
 
       const endingCoverage = coverageWeeks(lineEndingInventory - lineEndingBacklog, lineForwardNext)
@@ -236,6 +258,7 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
         forecast: lineForecast,
         startingInventory: lineStartingInventory,
         startingBacklog: lineStartingBacklog,
+        startingCoverage: coverageWeeks(lineStartingInventory - lineStartingBacklog, lineForwardNow),
         targetWeeks,
         endingInventory: lineEndingInventory,
         endingBacklog: lineEndingBacklog,
@@ -245,7 +268,7 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
     }
   }
 
-  return { policy, weeks: inputs.planWeeks, rows, lineWeeks, kpis: summarize(lineWeeks) }
+  return { policy, weeks: inputs.planWeeks, rows, lineWeeks, kpis: summarize(lineWeeks), dealerBuffer }
 }
 
 /**
@@ -322,11 +345,20 @@ function ration(
   return builds
 }
 
-/** Furthest below target first. Cover and target are both in weeks, so this subtracts like with like. */
+/**
+ * Furthest below target first. Cover and target are both in weeks, so this
+ * subtracts like with like.
+ *
+ * Genuinely equal SKUs are separated by forecast mix — the larger share of the
+ * line's demand goes first. That is the only place forecast mix influences
+ * allocation; as the primary rule it would undo this ordering entirely.
+ */
 function byUrgency(requests: Request[], targetWeeks: number): Request[] {
-  return [...requests].sort(
-    (a, b) => a.startingCoverage - targetWeeks - (b.startingCoverage - targetWeeks),
-  )
+  return [...requests].sort((a, b) => {
+    const gap = a.startingCoverage - targetWeeks - (b.startingCoverage - targetWeeks)
+    if (Math.abs(gap) > 1e-9) return gap
+    return b.forecast - a.forecast
+  })
 }
 
 function summarize(lineWeeks: LineWeek[]): PlanKpis {
@@ -340,12 +372,11 @@ function summarize(lineWeeks: LineWeek[]): PlanKpis {
     const last = weeks[weeks.length - 1]
     const atTarget = weeks.find((entry) => entry.atTarget)
     const cleared = weeks.find((entry) => entry.endingBacklog === 0)
-    const startingCoverage = coverageWeeksAtStart(first)
 
     lines.push({
       line,
       targetWeeks: last.targetWeeks,
-      coverageAtStart: startingCoverage,
+      coverageAtStart: first.startingCoverage,
       coverageAtEnd: last.endingCoverage,
       firstWeekAtTarget: atTarget?.weekStart ?? null,
       weeksAtOrAboveTarget: weeks.filter((entry) => entry.atTarget).length,
@@ -383,31 +414,18 @@ function summarize(lineWeeks: LineWeek[]): PlanKpis {
 }
 
 /**
- * The line's cover before any building happened.
+ * Opening stock and debt per SKU.
  *
- * Reconstructed from the first week's opening position and the demand it had to
- * meet, so the KPI card can show where Redwheel started.
+ * Dealer stock is only added here under the `central` treatment, which pools it
+ * with plant inventory. Under the default it stays downstream and shows up as
+ * reduced demand instead.
  */
-function coverageWeeksAtStart(first: LineWeek): number {
-  const net = first.startingInventory - first.startingBacklog
-  return first.forecast === 0 ? 0 : net / first.forecast
-}
-
-function demandSeries(inputs: PlanningInputs): Record<string, number[]> {
-  const series: Record<string, number[]> = {}
-  for (const product of inputs.products) {
-    const weekly = inputs.demand[product.sku] ?? {}
-    series[product.sku] = inputs.forecastWeeks.map((week) => weekly[week] ?? 0)
-  }
-  return series
-}
-
 function openingPositions(inputs: PlanningInputs, policy: Policy): Record<string, Position> {
   const positions: Record<string, Position> = {}
   for (const product of inputs.products) {
-    const dealer = policy.includeDealerStock ? (inputs.dealerStock[product.sku] ?? 0) : 0
+    const pooled = policy.dealerStock === 'central' ? (inputs.dealerStock[product.sku] ?? 0) : 0
     positions[product.sku] = {
-      inventory: (inputs.openingStock[product.sku] ?? 0) + dealer,
+      inventory: (inputs.openingStock[product.sku] ?? 0) + pooled,
       backlog: inputs.backlog[product.sku] ?? 0,
     }
   }
