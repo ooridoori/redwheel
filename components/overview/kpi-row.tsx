@@ -32,7 +32,7 @@ export function KpiRow({
   const before = previousPlan ? cardsFor(scopeKpis(previousPlan, scope)) : null
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
       {cards.map((card, index) => {
         const was = before?.[index]
         return (
@@ -91,17 +91,30 @@ function cardsFor(kpis: ScopeKpis): KpiCard[] {
             : undefined,
     },
     {
-      label: 'Projected cover',
-      value:
-        isRange && kpis.projectedLow !== kpis.projectedHigh
-          ? `${weeks(kpis.projectedLow)} \u2013 ${weeks(kpis.projectedHigh)}`
-          : weeks(kpis.projectedHigh),
+      label: 'End-of-horizon line cover',
+      value: `${kpis.linesAtTarget} / ${kpis.linesInScope}`,
       tone: onTrack ? 'positive' : 'warning',
-      detail: isRange
-        ? `${kpis.linesAtTarget} of ${kpis.linesInScope} lines at target`
-        : onTrack
-          ? 'At target'
-          : 'Below target at horizon end',
+      detail:
+        kpis.skuWeeksMissedToCapacity > 0
+          ? 'Line averages may mask SKU-level shortages'
+          : kpis.linesInScope === 1
+            ? onTrack
+              ? 'This line finishes at target'
+              : 'This line finishes below target'
+            : 'Every line finishes at target',
+      hint: isRange
+        ? `Projected cover by line is ${weeks(kpis.projectedLow)} – ${weeks(kpis.projectedHigh)}. A line can be at target while one of its sizes is not.`
+        : `Projected cover ${weeks(kpis.projectedHigh)} against a ${kpis.targetHigh}w target.`,
+    },
+    {
+      label: 'SKU target attainment',
+      value: `${units(kpis.skuWeeksAtTarget)} / ${units(kpis.skuWeeks)}`,
+      tone: kpis.skuWeeksMissedToCapacity === 0 ? 'positive' : 'warning',
+      detail:
+        kpis.skuWeeksMissedToCapacity === 0
+          ? 'Every SKU-week at target'
+          : `${units(kpis.skuWeeksMissedToCapacity)} misses due to capacity`,
+      hint: 'One count per SKU per planned week. A miss is a week whose ending cover is below target; on this plan those are weeks the SKU was shorted on a constrained line.',
     },
     {
       label: 'Overall capacity utilization',
@@ -228,14 +241,15 @@ export function InsightPanel({ plan, scope }: { plan: BuildPlan; scope: Scope })
 const KPI_LABELS = [
   'Target cover',
   'Cover at snapshot',
-  'Projected cover',
+  'End-of-horizon line cover',
+  'SKU target attainment',
   'Overall capacity utilization',
   'Backlog',
 ] as const
 
 export function KpiRowSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-hidden>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3" aria-hidden>
       {KPI_LABELS.map((label) => (
         <div key={label} className="rounded-xl border border-edge bg-surface px-4 py-3">
           <div className="eyebrow">{label}</div>

@@ -62,8 +62,6 @@ export function PlanTable({
   }
 
   function isWeekOpen(weekStart: string): boolean {
-    // Keep the drawer’s week visible so selecting a row doesn’t lose table context.
-    if (selectedKey && weekStart === focusWeek) return true
     if (weekStart in weekOpen) return weekOpen[weekStart]
     return weekStart === focusWeek
   }
@@ -75,9 +73,47 @@ export function PlanTable({
     }))
   }
 
+  function expandAll() {
+    setWeekOpen(Object.fromEntries(groups.map((group) => [group.weekStart, true])))
+  }
+
+  function collapseAll() {
+    setWeekOpen(Object.fromEntries(groups.map((group) => [group.weekStart, false])))
+  }
+
+  const openCount = groups.filter((group) => isWeekOpen(group.weekStart)).length
+  const allOpen = openCount === groups.length
+  const allClosed = openCount === 0
+
   return (
     <table className="w-full border-separate border-spacing-0 text-[12.5px]">
       <thead className="sticky top-0 z-10">
+        <tr>
+          <th
+            colSpan={COLUMNS.length + 1}
+            className="border-b border-edge bg-surface px-3 py-1.5 text-left font-normal"
+          >
+            <div className="flex items-center gap-2.5 text-[11.5px]">
+              <button
+                type="button"
+                onClick={expandAll}
+                disabled={allOpen}
+                className="text-ink-faint transition-colors hover:text-ink disabled:cursor-default disabled:text-ink-faint/50"
+              >
+                Expand all
+              </button>
+              <span className="text-edge-strong">·</span>
+              <button
+                type="button"
+                onClick={collapseAll}
+                disabled={allClosed}
+                className="text-ink-faint transition-colors hover:text-ink disabled:cursor-default disabled:text-ink-faint/50"
+              >
+                Collapse all
+              </button>
+            </div>
+          </th>
+        </tr>
         <tr>
           {COLUMNS.map((column) => (
             <th

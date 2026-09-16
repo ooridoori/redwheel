@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { loadPlanningInputs } from '../load-inputs'
 import { runAllocation } from './index'
 import { derivationOf } from './derivation'
-import { skuStatus, weekTargetSummary } from './status'
+import { coverGloss, skuStatus, weekTargetSummary } from './status'
 import { weeksPhrase } from '../format'
+import { scopeKpis } from './scope'
 
 const inputs = loadPlanningInputs()
 const plan = runAllocation(inputs)
@@ -47,9 +48,9 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
   it('labels the line constraint from the line-week, not a SKU-local guess', () => {
     const byLabel = Object.fromEntries(derivation.capacity.map((term) => [term.label, term.value]))
     expect(byLabel['This SKU needs']).toBe(83)
-    expect(byLabel['Combined SKU need']).toBe(326)
+    expect(byLabel['Other SKU need']).toBe(243)
     expect(byLabel['Line capacity']).toBe(150)
-    expect(byLabel['Capacity shortfall']).toBe(176)
+    expect(byLabel['Unmet need']).toBe(176)
   })
 
   it('marks the miss as a capacity short, not an engine error', () => {
@@ -73,5 +74,61 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
     const summary = weekTargetSummary(weekRows)
     expect(summary.primary).toBe('1 of 10 SKUs meet target cover')
     expect(summary.secondary).toBe('9 remain below target due to capacity constraints')
+  })
+})
+
+describe('RW-9324 week of 2026-09-07 — already above target', () => {
+  const surplus = plan.rows.find((entry) => entry.sku === 'RW-9324' && entry.weekStart === week)!
+  const siblingLarge = plan.rows.find((entry) => entry.sku === 'RW-9901' && entry.weekStart === week)!
+  const mtbLine = plan.lineWeeks.find((entry) => entry.weekStart === week && entry.line === 'mtb-base')!
+  const mtbRows = plan.rows.filter((entry) => entry.weekStart === week && entry.line === 'mtb-base')
+  const mtbDerivation = derivationOf(surplus, mtbLine, mtbRows)
+
+  it('reads the surplus SKU from the plan row', () => {
+    expect(surplus.desiredBuild).toBe(0)
+    expect(surplus.build).toBe(0)
+    expect(surplus.startingInventory).toBe(1900)
+    expect(surplus.startingBacklog).toBe(0)
+    expect(surplus.forecast).toBe(6)
+    expect(surplus.targetInventory).toBe(72)
+    expect(surplus.targetWeeks).toBe(12)
+    expect(surplus.endingInventory).toBe(1894)
+    expect(surplus.startingCoverage).toBeCloseTo(130.46, 2)
+    expect(surplus.endingCoverage).toBeCloseTo(129.46, 2)
+    expect(surplus.shipped).toBe(6)
+    expect(siblingLarge.startingCoverage).toBeCloseTo(-9.28, 2)
+    expect(siblingLarge.desiredBuild).toBe(1155)
+    expect(siblingLarge.build).toBe(130)
+    expect(mtbLine.capacity).toBe(130)
+    expect(mtbLine.unmet).toBe(1025)
+  })
+
+  it('labels other-SKU need rather than implying this SKU asked for 1,155', () => {
+    const byLabel = Object.fromEntries(mtbDerivation.capacity.map((term) => [term.label, term.value]))
+    expect(byLabel['This SKU needs']).toBe(0)
+    expect(byLabel['Other SKU need']).toBe(1155)
+    expect(byLabel['Line capacity']).toBe(130)
+    expect(byLabel['Unmet need']).toBe(1025)
+  })
+
+  it('does not treat a zero-need SKU as having lost a competition', () => {
+    expect(surplus.desiredBuild).toBe(0)
+    expect(skuStatus(surplus).met).toBe(true)
+    expect(skuStatus(surplus).detail).toBeNull()
+    expect(coverGloss(surplus.startingCoverage, surplus.targetWeeks)).toContain('well above')
+    const siblingPeer = mtbDerivation.peers.find((peer) => peer.sku === 'RW-9901')!
+    expect(siblingPeer.desiredBuild).toBe(1155)
+    expect(siblingPeer.build).toBe(130)
+  })
+})
+
+describe('horizon KPIs distinguish line cover from SKU-weeks', () => {
+  it('counts 4/4 lines at target and 296 SKU-week misses due to capacity', () => {
+    const kpis = scopeKpis(plan, 'all')
+    expect(kpis.linesAtTarget).toBe(4)
+    expect(kpis.linesInScope).toBe(4)
+    expect(kpis.skuWeeks).toBe(1210)
+    expect(kpis.skuWeeksAtTarget).toBe(914)
+    expect(kpis.skuWeeksMissedToCapacity).toBe(296)
   })
 })

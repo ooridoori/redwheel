@@ -134,6 +134,13 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
     },
   ]
 
+  const othersOnLine = lineRows.filter(
+    (candidate) =>
+      candidate.weekStart === row.weekStart &&
+      candidate.line === row.line &&
+      candidate.sku !== row.sku,
+  )
+  const othersNeed = lineWeek.desiredBuild - row.desiredBuild
   const shortfall = Math.max(0, lineWeek.desiredBuild - lineWeek.capacity)
   const capacity: EquationTerm[] = [
     {
@@ -143,8 +150,8 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
       role: 'obligation',
     },
     {
-      label: 'Combined SKU need',
-      value: lineWeek.desiredBuild,
+      label: othersOnLine.length === 1 ? 'Other SKU need' : 'Other SKUs need',
+      value: othersNeed,
       operator: '',
       role: 'obligation',
     },
@@ -155,7 +162,7 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
       role: 'supply',
     },
     {
-      label: 'Capacity shortfall',
+      label: 'Unmet need',
       value: shortfall,
       operator: '=',
       role: 'result',

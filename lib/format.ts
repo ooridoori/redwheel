@@ -20,11 +20,11 @@ export function signedUnits(value: number): string {
   return `${rounded > 0 ? '+' : '\u2212'}${Math.abs(rounded).toLocaleString('en-US')}`
 }
 
-/** Weeks of cover. Always one decimal, always signed when negative. */
-export function weeks(value: number): string {
+/** Weeks of cover. Signed when negative. Defaults to one decimal. */
+export function weeks(value: number, digits = 1): string {
   if (!Number.isFinite(value)) return '\u2014'
   const sign = value < 0 ? '\u2212' : ''
-  return `${sign}${Math.abs(value).toFixed(1)}w`
+  return `${sign}${Math.abs(value).toFixed(digits)}w`
 }
 
 /** Weeks of cover as a phrase, for outcome copy ("2.81 weeks"). */

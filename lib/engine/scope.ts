@@ -26,6 +26,11 @@ export interface ScopeKpis {
   projectedHigh: number
   linesInScope: number
   linesAtTarget: number
+  /** SKU × week rows in this scope. */
+  skuWeeks: number
+  skuWeeksAtTarget: number
+  /** SKU-weeks below target where the SKU was also shorted of its asked build. */
+  skuWeeksMissedToCapacity: number
   utilization: number
   totalBuild: number
   totalCapacity: number
@@ -55,6 +60,12 @@ export function scopeKpis(plan: BuildPlan, scope: Scope): ScopeKpis {
     .filter((entry) => entry.weekStart === plan.weeks[0])
     .map((entry) => entry.targetWeeks)
 
+  const rows = plan.rows.filter((row) => scope === 'all' || row.line === scope)
+  const skuWeeksAtTarget = rows.filter((row) => row.endingCoverage >= row.targetWeeks).length
+  const skuWeeksMissedToCapacity = rows.filter(
+    (row) => row.endingCoverage < row.targetWeeks && row.desiredBuild > row.build,
+  ).length
+
   return {
     targetNowLow: firstWeekTargets.length === 0 ? 0 : Math.min(...firstWeekTargets),
     targetNowHigh: firstWeekTargets.length === 0 ? 0 : Math.max(...firstWeekTargets),
@@ -66,6 +77,9 @@ export function scopeKpis(plan: BuildPlan, scope: Scope): ScopeKpis {
     projectedHigh: max(lines, (line) => line.coverageAtEnd),
     linesInScope: lines.length,
     linesAtTarget: lines.filter((line) => line.coverageAtEnd >= line.targetWeeks).length,
+    skuWeeks: rows.length,
+    skuWeeksAtTarget,
+    skuWeeksMissedToCapacity,
     utilization: totalCapacity === 0 ? 0 : totalBuild / totalCapacity,
     totalBuild,
     totalCapacity,

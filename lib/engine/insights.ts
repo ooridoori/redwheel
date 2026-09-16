@@ -34,6 +34,8 @@ function status(plan: BuildPlan, lines: LineKpi[]): Insight {
   )[0]
   const gap = worst.targetWeeks - worst.coverageAtStart
   const atTarget = lines.filter((line) => line.coverageAtEnd >= line.targetWeeks).length
+  const skuWeeks = plan.rows.filter((row) => lines.some((line) => line.line === row.line))
+  const skuMisses = skuWeeks.filter((row) => row.endingCoverage < row.targetWeeks).length
 
   const recovery = worst.firstWeekAtTarget
     ? `Reaches target ${weekLabelLong(worst.firstWeekAtTarget)}`
@@ -55,7 +57,9 @@ function status(plan: BuildPlan, lines: LineKpi[]): Insight {
     title: 'Status',
     tone: 'watch',
     body: `${LINE_LABELS[worst.line]} is ${gap.toFixed(1)}w below its ${worst.targetWeeks}w target. ${recovery}, and ${backlog}.${
-      lines.length > 1 ? ` ${atTarget} of ${lines.length} lines finish at target.` : ''
+      lines.length > 1
+        ? ` ${atTarget} of ${lines.length} lines finish at target${skuMisses > 0 ? `; ${units(skuMisses)} SKU-weeks still miss because of capacity` : ''}.`
+        : ''
     }`,
   }
 }

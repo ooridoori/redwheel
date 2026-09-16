@@ -45,6 +45,16 @@ export function skuStatus(row: OutcomeFields): {
   }
 }
 
+export function wellAboveTarget(coverage: number, targetWeeks: number): boolean {
+  return coverage >= targetWeeks * 2
+}
+
+/** Short gloss for an extreme cover figure so it does not look like a broken calc. */
+export function coverGloss(coverage: number, targetWeeks: number): string | null {
+  if (!wellAboveTarget(coverage, targetWeeks)) return null
+  return `${weeksPhrase(coverage)} \u2014 well above the ${targetWeeks}-week target`
+}
+
 export function weekTargetSummary(rows: OutcomeFields[]): { primary: string; secondary: string | null } {
   const total = rows.length
   const met = rows.filter(atTarget).length
