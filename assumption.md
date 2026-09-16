@@ -24,8 +24,11 @@ Target inventory = forecast demand × weeks of supply
 Required build = target inventory + oustanding backlog - starting available inventory
 ```
 
-- If the required build is less than or equal to weekly capacity, build what each SKU needs.
-- If not, the line is constrained, so the allocation policy determines which SKU receives the scarce capacity first.
+The engine then evaluates the combined required build across all SKUs on the production line:
+- If total required build is less than or equal to that week's line capacity, build what each SKU needs.
+- If total required build exceeds line capacity, the line is constrained and the allocation policy determines how the limited capacity is distributed.
+
+Ending inventory and unresolved backlog roll forward into the next week, so each week's allocation decisions affect later weeks in the planning horizon.
 
 ## Allocation policy assumptions
 
