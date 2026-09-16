@@ -34,6 +34,8 @@ export interface PeerStanding {
 
 export interface Derivation {
   need: EquationTerm[]
+  /** Backlog + current plant demand that roll up into Current obligations. */
+  needAgainst: EquationTerm[]
   capacity: EquationTerm[]
   outcome: EquationTerm[]
   /** Obligations that shipped draws against: backlog + current plant demand. */
@@ -82,11 +84,10 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
 
   const need: EquationTerm[] = [
     {
-      label: 'Forward cover',
+      label: 'Target inventory',
       value: row.targetInventory,
       operator: '',
       role: 'obligation',
-      note: `${row.targetWeeks}w target cover`,
     },
     {
       label: 'Backlog',
@@ -105,40 +106,60 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
           : undefined,
     },
     {
-      label: 'Inventory',
+      label: 'Starting inventory',
       value: row.startingInventory,
       operator: '\u2212',
       role: 'supply',
     },
     {
-      label: 'Build needed',
+      label: 'Required build',
       value: row.desiredBuild,
       operator: '=',
       role: 'result',
     },
   ]
 
+  const needAgainst: EquationTerm[] = [
+    {
+      label: 'Backlog',
+      value: row.startingBacklog,
+      operator: '',
+      role: 'obligation',
+    },
+    {
+      label: 'Current plant demand',
+      value: row.forecast,
+      operator: '+',
+      role: 'obligation',
+    },
+  ]
+
+  const shortfall = Math.max(0, lineWeek.desiredBuild - lineWeek.capacity)
   const capacity: EquationTerm[] = [
     {
-      label: 'Build needed for the line',
+      label: 'This SKU needs',
+      value: row.desiredBuild,
+      operator: '',
+      role: 'obligation',
+    },
+    {
+      label: 'Combined SKU need',
       value: lineWeek.desiredBuild,
       operator: '',
       role: 'obligation',
     },
     {
-      label: 'Shared line capacity',
+      label: 'Line capacity',
       value: lineWeek.capacity,
       operator: '',
       role: 'supply',
-      note: capacityConstrained
-        ? `Short ${Math.max(0, lineWeek.desiredBuild - lineWeek.capacity).toLocaleString()} units`
-        : 'Enough for every size',
     },
     {
-      label: 'Planned build',
-      value: row.build,
+      label: 'Capacity shortfall',
+      value: shortfall,
       operator: '=',
       role: 'result',
+      note: capacityConstrained ? undefined : 'Enough for every SKU',
     },
   ]
 
@@ -193,6 +214,7 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
 
   return {
     need,
+    needAgainst,
     capacity,
     outcome,
     shippedAgainst,

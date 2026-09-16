@@ -27,6 +27,13 @@ export function weeks(value: number): string {
   return `${sign}${Math.abs(value).toFixed(1)}w`
 }
 
+/** Weeks of cover as a phrase, for outcome copy ("2.81 weeks"). */
+export function weeksPhrase(value: number, digits = 2): string {
+  if (!Number.isFinite(value)) return '\u2014'
+  const sign = value < 0 ? '\u2212' : ''
+  return `${sign}${Math.abs(value).toFixed(digits)} weeks`
+}
+
 export function percent(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits)}%`
 }

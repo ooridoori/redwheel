@@ -6,11 +6,17 @@
  * Columns read left to right in the order the arithmetic happens: what we hold,
  * what we owe, what the target asks for, what the SKU requested, what the line
  * could give it, and where that leaves us. Clicking a row opens the derivation.
+ *
+ * Weeks collapse so a long horizon stays scannable: the selected week stays
+ * open; others start closed and expand from a chevron on the week label.
  */
+import { useMemo, useState, type ReactNode, Fragment } from 'react'
 import { percent, units, weekLabel, weeks, yearOf } from '@/lib/format'
 import { NO_DIFF, type PlanDiff } from '@/lib/engine/diff'
 import { Badge, Bone, cx } from '@/components/ui/primitives'
 import { InfoTip } from '@/components/ui/info-tip'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@/components/ui/icons'
+import { skuStatus, weekTargetSummary } from '@/lib/engine/status'
 import type { TableRow } from './rows'
 
 const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string }[] = [
@@ -40,12 +46,33 @@ export function PlanTable({
   /** Which builds and cover figures the last run moved. */
   diff?: PlanDiff
 }) {
+  const groups = useMemo(() => groupByWeek(rows), [rows])
+  const focusWeek =
+    rows.find((row) => row.key === selectedKey)?.weekStart ?? groups[0]?.weekStart ?? null
+
+  // Overrides against the default (only the focused week open). Missing → default.
+  const [weekOpen, setWeekOpen] = useState<Record<string, boolean>>({})
+
   if (rows.length === 0) {
     return (
       <div className="px-5 py-16 text-center text-[13px] text-ink-faint">
         No weeks in the selected range.
       </div>
     )
+  }
+
+  function isWeekOpen(weekStart: string): boolean {
+    // Keep the drawer’s week visible so selecting a row doesn’t lose table context.
+    if (selectedKey && weekStart === focusWeek) return true
+    if (weekStart in weekOpen) return weekOpen[weekStart]
+    return weekStart === focusWeek
+  }
+
+  function toggleWeek(weekStart: string) {
+    setWeekOpen((previous) => ({
+      ...previous,
+      [weekStart]: !isWeekOpen(weekStart),
+    }))
   }
 
   return (
@@ -64,111 +91,160 @@ export function PlanTable({
               {column.label}
             </th>
           ))}
+          <th className="border-b border-edge bg-surface px-2 py-2 text-right font-normal text-ink-faint">
+            <span className="sr-only">Open details</span>
+          </th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, index) => {
-          // The week is printed once per group and the group gets a top rule,
-          // so several SKU rows read as one week.
-          const isNewWeek = index === 0 || rows[index - 1].weekStart !== row.weekStart
-          const isSelected = row.key === selectedKey
-          const shorted = row.desiredBuild > row.build
+        {groups.map((group) => {
+          const open = isWeekOpen(group.weekStart)
+          if (!open) {
+            return (
+              <WeekSummaryRow
+                key={group.weekStart}
+                weekStart={group.weekStart}
+                rows={group.rows}
+                open={false}
+                onToggle={() => toggleWeek(group.weekStart)}
+              />
+            )
+          }
 
           return (
-            <tr
-              key={row.key}
-              onClick={() => onSelect(row)}
-              className={cx('cursor-pointer', isSelected ? 'bg-accent-soft' : 'hover:bg-hover')}
-            >
-              <Cell first={isNewWeek}>
-                {isNewWeek ? (
-                  <span className="tnum text-ink">
-                    {weekLabel(row.weekStart)}
-                    <span className="ml-1 text-ink-faint">{`'${yearOf(row.weekStart).slice(2)}`}</span>
-                  </span>
-                ) : (
-                  <span>&nbsp;</span>
-                )}
-              </Cell>
+            <Fragment key={group.weekStart}>
+              <WeekSummaryRow
+                weekStart={group.weekStart}
+                rows={group.rows}
+                open
+                onToggle={() => toggleWeek(group.weekStart)}
+              />
+              {group.rows.map((row) => {
+                const isSelected = row.key === selectedKey
+                const shorted = row.desiredBuild > row.build
+                const status = skuStatus(row)
 
-              <Cell first={isNewWeek}>
-                <span className="tnum text-ink">{row.sku}</span>
-                <span className="ml-1.5 text-[11px] text-ink-faint">{row.size}</span>
-              </Cell>
-
-              <Cell first={isNewWeek}>
-                <span className="text-[11.5px] text-ink-faint">{row.lineLabel}</span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span className="inline-flex items-center justify-end gap-1">
-                  <span className="tnum text-ink-muted">{units(row.forecast)}</span>
-                  {row.absorbedByDealers > 0 && (
-                    <InfoTip
-                      text={`${units(row.grossForecast)} total demand · ${units(row.absorbedByDealers)} covered by dealer stock · ${units(row.forecast)} remaining factory demand`}
-                    />
-                  )}
-                </span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span className="tnum text-ink-muted">{units(row.startingInventory)}</span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span className={cx('tnum', row.startingBacklog > 0 ? 'text-neg' : 'text-ink-faint')}>
-                  {row.startingBacklog > 0 ? units(row.startingBacklog) : '—'}
-                </span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span className="tnum text-ink-faint">{row.targetWeeks}w</span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span className="tnum text-ink-muted">{row.desiredBuild > 0 ? units(row.desiredBuild) : '—'}</span>
-              </Cell>
-
-              <Cell first={isNewWeek} align="right">
-                <span
-                  className={cx(
-                    'tnum font-medium',
-                    row.build > 0 ? 'text-ink' : 'text-ink-faint',
-                    diff.build.has(row.key) && 'changed -mx-1 px-1',
-                  )}
-                  title={diff.build.has(row.key) ? 'Changed in the last run' : undefined}
-                >
-                  {units(row.build)}
-                </span>
-                {shorted && (
-                  <span
-                    className="ml-1 text-[10.5px] text-warn"
-                    title={`${units(row.desiredBuild - row.build)} short of build needed. The line needed ${units(row.lineDesired)} against ${units(row.capacity)} capacity.`}
+                return (
+                  <tr
+                    key={row.key}
+                    onClick={() => {
+                      setWeekOpen((previous) => ({ ...previous, [row.weekStart]: true }))
+                      onSelect(row)
+                    }}
+                    aria-selected={isSelected}
+                    className={cx(
+                      'group cursor-pointer transition-colors',
+                      isSelected ? 'bg-accent-soft' : 'hover:bg-hover',
+                    )}
                   >
-                    ▲
-                  </span>
-                )}
-              </Cell>
+                    <Cell weekGroup={false}>
+                      <span>&nbsp;</span>
+                    </Cell>
 
-              <Cell first={isNewWeek} align="right">
-                <span className="tnum text-ink-faint">{units(row.capacity)}</span>
-              </Cell>
+                    <Cell weekGroup={false}>
+                      <span className="tnum text-ink">{row.sku}</span>
+                      <span className="ml-1.5 text-[11px] text-ink-faint">{row.size}</span>
+                    </Cell>
 
-              <Cell first={isNewWeek} align="right">
-                <span className="tnum text-ink-muted">{units(row.endingInventory)}</span>
-              </Cell>
+                    <Cell weekGroup={false}>
+                      <span className="text-[11.5px] text-ink-faint">{row.lineLabel}</span>
+                    </Cell>
 
-              <Cell first={isNewWeek} align="right">
-                <span className={cx('inline-block', diff.cover.has(row.key) && 'changed -mx-0.5 px-0.5')}>
-                  <Badge
-                    tone={row.atTarget ? 'positive' : row.endingCoverage < 0 ? 'negative' : 'warning'}
-                    title={`${row.atTarget ? 'At' : 'Below'} ${row.targetWeeks}w target cover`}
-                  >
-                    {weeks(row.endingCoverage)}
-                  </Badge>
-                </span>
-              </Cell>
-            </tr>
+                    <Cell weekGroup={false} align="right">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        <span className="tnum text-ink-muted">{units(row.forecast)}</span>
+                        {row.absorbedByDealers > 0 && (
+                          <InfoTip
+                            text={`${units(row.grossForecast)} total demand · ${units(row.absorbedByDealers)} covered by dealer stock · ${units(row.forecast)} remaining factory demand`}
+                          />
+                        )}
+                      </span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className="tnum text-ink-muted">{units(row.startingInventory)}</span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className={cx('tnum', row.startingBacklog > 0 ? 'text-neg' : 'text-ink-faint')}>
+                        {row.startingBacklog > 0 ? units(row.startingBacklog) : '—'}
+                      </span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className="tnum text-ink-faint">{row.targetWeeks}w</span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className="tnum text-ink-muted">
+                        {row.desiredBuild > 0 ? units(row.desiredBuild) : '—'}
+                      </span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span
+                        className={cx(
+                          'tnum font-medium',
+                          row.build > 0 ? 'text-ink' : 'text-ink-faint',
+                          diff.build.has(row.key) && 'changed -mx-1 px-1',
+                        )}
+                        title={diff.build.has(row.key) ? 'Changed in the last run' : undefined}
+                      >
+                        {units(row.build)}
+                      </span>
+                      {shorted && (
+                        <span
+                          className="ml-1 text-[10.5px] text-warn"
+                          title={`${units(row.desiredBuild - row.build)} short of build needed. The line needed ${units(row.lineDesired)} against ${units(row.capacity)} capacity.`}
+                        >
+                          ▲
+                        </span>
+                      )}
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className="tnum text-ink-faint">{units(row.capacity)}</span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span className="tnum text-ink-muted">{units(row.endingInventory)}</span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right">
+                      <span
+                        className={cx(
+                          'inline-flex flex-col items-end gap-0.5',
+                          diff.cover.has(row.key) && 'changed -mx-0.5 px-0.5',
+                        )}
+                      >
+                        <Badge
+                          tone={status.met ? 'positive' : 'warning'}
+                          title={status.detail ? `${status.label}. ${status.detail}` : status.label}
+                        >
+                          {status.met ? <CheckIcon /> : null}
+                          {status.met ? 'Target met' : status.label}
+                        </Badge>
+                        <span className="text-[10.5px] text-ink-faint tnum">
+                          {weeks(row.endingCoverage)} / {row.targetWeeks}w
+                        </span>
+                      </span>
+                    </Cell>
+
+                    <Cell weekGroup={false} align="right" tight>
+                      <span
+                        className={cx(
+                          'inline-flex items-center gap-0.5 text-[11px] transition-colors',
+                          isSelected ? 'text-accent-bright' : 'text-ink-faint group-hover:text-ink-muted',
+                        )}
+                      >
+                        <span className="hidden sm:inline">Details</span>
+                        <ChevronRightIcon />
+                      </span>
+                    </Cell>
+                  </tr>
+                )
+              })}
+            </Fragment>
           )
         })}
       </tbody>
@@ -176,21 +252,104 @@ export function PlanTable({
   )
 }
 
+function groupByWeek(rows: TableRow[]): { weekStart: string; rows: TableRow[] }[] {
+  const groups: { weekStart: string; rows: TableRow[] }[] = []
+  for (const row of rows) {
+    const last = groups[groups.length - 1]
+    if (last && last.weekStart === row.weekStart) last.rows.push(row)
+    else groups.push({ weekStart: row.weekStart, rows: [row] })
+  }
+  return groups
+}
+
+function WeekToggle({
+  weekStart,
+  open,
+  onToggle,
+}: {
+  weekStart: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        onToggle()
+      }}
+      aria-expanded={open}
+      className="inline-flex items-center gap-1 text-left text-ink transition-colors hover:text-ink"
+    >
+      {open ? (
+        <ChevronDownIcon className="shrink-0 text-ink-faint" />
+      ) : (
+        <ChevronRightIcon className="shrink-0 text-ink-faint" />
+      )}
+      <span className="tnum">
+        {weekLabel(weekStart)}
+        <span className="ml-1 text-ink-faint">{`'${yearOf(weekStart).slice(2)}`}</span>
+      </span>
+    </button>
+  )
+}
+
+function WeekSummaryRow({
+  weekStart,
+  rows,
+  open,
+  onToggle,
+}: {
+  weekStart: string
+  rows: TableRow[]
+  open: boolean
+  onToggle: () => void
+}) {
+  const summary = weekTargetSummary(rows)
+
+  return (
+    <tr
+      onClick={open ? undefined : onToggle}
+      className={cx(!open && 'cursor-pointer transition-colors hover:bg-hover')}
+    >
+      <Cell weekGroup>
+        <WeekToggle weekStart={weekStart} open={open} onToggle={onToggle} />
+      </Cell>
+      <td
+        colSpan={COLUMNS.length}
+        className="border-t border-edge-strong px-3 py-[6px] text-[11.5px] text-ink-faint"
+      >
+        <span>{summary.primary}</span>
+        {summary.secondary && (
+          <>
+            <span className="mx-1.5 text-edge-strong">·</span>
+            <span className="text-warn">{summary.secondary}</span>
+          </>
+        )}
+      </td>
+    </tr>
+  )
+}
+
 function Cell({
   children,
   align = 'left',
-  first,
+  weekGroup,
+  tight = false,
 }: {
-  children: React.ReactNode
+  children: ReactNode
   align?: 'left' | 'right'
-  first: boolean
+  /** Stronger rule between weeks; hairline within a week. */
+  weekGroup: boolean
+  tight?: boolean
 }) {
   return (
     <td
       className={cx(
-        'px-3 py-[5px] whitespace-nowrap',
+        'whitespace-nowrap',
+        tight ? 'px-2 py-[5px]' : 'px-3 py-[5px]',
         align === 'right' ? 'text-right' : 'text-left',
-        first ? 'border-t border-edge' : 'border-t border-transparent',
+        weekGroup ? 'border-t border-edge-strong' : 'border-t border-edge/50',
       )}
     >
       {children}
@@ -215,13 +374,13 @@ export function PlanTableSummary({ rows, diff = NO_DIFF }: { rows: TableRow[]; d
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-1 border-t border-edge bg-surface px-4 py-2 text-[11.5px] text-ink-faint">
       <span>
-        <span className="tnum text-ink-muted">{units(rows.length)}</span> rows
+        <span className="tnum text-ink-muted">{units(rows.length)}</span> SKU-weeks
       </span>
       <span>
-        Build needed <span className="tnum text-ink-muted">{units(asked)}</span>
+        Total build need <span className="tnum text-ink-muted">{units(asked)}</span>
       </span>
       <span>
-        Planned build <span className="tnum text-ink">{units(build)}</span>
+        Planned production <span className="tnum text-ink">{units(build)}</span>
       </span>
       <span className="inline-flex items-center gap-1">
         Selected range utilization{' '}
@@ -230,17 +389,17 @@ export function PlanTableSummary({ rows, diff = NO_DIFF }: { rows: TableRow[]; d
           text={`${units(build)} planned of ${units(capacity)} capacity in the weeks on screen. The KPI is overall capacity utilization for the full horizon.`}
         />
       </span>
-      <span title="Rows where planned build is below build needed">
-        Shorted rows{' '}
+      <span title="SKU-weeks where planned build is below build needed">
+        Capacity-constrained SKU-weeks{' '}
         <span className={cx('tnum', shortRows > 0 ? 'text-warn' : 'text-pos')}>{units(shortRows)}</span>
       </span>
       {diff.hasPrevious && (
-        <span title="Rows whose planned build moved in the last run">
+        <span title="SKU-weeks whose planned build moved in the last run">
           Builds changed{' '}
           <span className={cx('tnum', changedRows > 0 ? 'text-accent' : 'text-ink-muted')}>{units(changedRows)}</span>
         </span>
       )}
-      <span className="ml-auto">Click a row to see the math</span>
+      <span className="ml-auto">Select a row for the arithmetic</span>
     </div>
   )
 }
@@ -261,6 +420,7 @@ export function PlanTableSkeleton() {
               {column.label}
             </th>
           ))}
+          <th className="border-b border-edge bg-surface px-2 py-2" />
         </tr>
       </thead>
       <tbody>
@@ -272,12 +432,15 @@ export function PlanTableSkeleton() {
                 className={cx(
                   'px-3 py-[7px]',
                   column.align === 'right' ? 'text-right' : 'text-left',
-                  index === 0 ? 'border-t border-edge' : 'border-t border-transparent',
+                  index === 0 ? 'border-t border-edge-strong' : 'border-t border-edge/50',
                 )}
               >
                 <Bone className={cx('inline-block h-3', column.align === 'right' ? 'w-10' : 'w-16')} />
               </td>
             ))}
+            <td className={cx('px-2 py-[7px]', index === 0 ? 'border-t border-edge-strong' : 'border-t border-edge/50')}>
+              <Bone className="ml-auto inline-block h-3 w-10" />
+            </td>
           </tr>
         ))}
       </tbody>

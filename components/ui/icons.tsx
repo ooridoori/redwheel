@@ -21,6 +21,22 @@ export function ChevronDownIcon({ className }: IconProps) {
   )
 }
 
+export function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg {...base} width={12} height={12} viewBox="0 0 12 12" className={className} aria-hidden>
+      <path d="m4.25 3 3 3-3 3" />
+    </svg>
+  )
+}
+
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg {...base} width={12} height={12} viewBox="0 0 12 12" className={className} aria-hidden>
+      <path d="M2.5 6.25 5 8.75 9.5 3.5" />
+    </svg>
+  )
+}
+
 export function RunIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden>
