@@ -145,7 +145,7 @@ function describeTranslation(): DataNote[] {
       severity: 'warning',
       source: 'assumption',
       message:
-        'Capacity and cover targets are stated per production line, but stock, backlog and forecast are per SKU. Builds are therefore ranked and allocated at SKU level, worst-off first by weeks below target, with forecast mix only breaking ties.',
+        'Capacity and cover targets are stated per production line, but stock, backlog and forecast are per SKU. Builds are ranked and allocated at SKU level. The default policy is worst-off first by weeks below target, with forecast mix only breaking ties; proportional and owed-customers-first are selectable alternatives.',
     },
   ]
 }

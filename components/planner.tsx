@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { PlanningInputs } from '@/lib/planning-inputs'
-import { runAllocation, DEFAULT_POLICY, type BuildPlan, type Policy } from '@/lib/engine'
+import { runAllocation, DEFAULT_POLICY, scenarioSummary, type BuildPlan, type Policy } from '@/lib/engine'
 import { diffPlans } from '@/lib/engine/diff'
 import type { Scope } from '@/lib/engine/scope'
 import { weekLabelLong } from '@/lib/format'
@@ -137,12 +137,21 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
         </div>
       </header>
 
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge px-4 py-1.5 sm:px-5">
+        <p className="min-w-0 text-[12px] text-ink-muted">
+          <span className="text-ink-faint">Scenario:</span> {scenarioSummary(appliedPolicy)}
+        </p>
+        {isDirty && (
+          <p className="text-[12px] text-accent">Scenario changed — run allocation to update plan</p>
+        )}
+      </div>
+
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row" aria-busy={isRunning}>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4 lg:overflow-hidden">
           {isRunning ? (
             <KpiRowSkeleton />
           ) : (
-            <KpiRow plan={plan} previousPlan={previousPlan} scope={scope} />
+            <KpiRow plan={plan} previousPlan={previousPlan} scope={scope} visibleWeeks={visibleWeeks} />
           )}
 
           {/*
@@ -151,7 +160,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
             first on mobile because it is the screen's centrepiece.
           */}
           <div className="grid shrink-0 grid-cols-1 gap-3 lg:h-[264px] lg:grid-cols-[minmax(340px,1.1fr)_1.8fr]">
-            <section className="order-1 flex h-[260px] min-h-0 flex-col rounded-xl border border-edge bg-surface px-4 py-3 lg:order-2 lg:h-auto lg:min-h-0">
+            <section className="relative z-20 order-1 flex h-[260px] min-h-0 flex-col overflow-visible rounded-xl border border-edge bg-surface px-4 py-3 lg:order-2 lg:h-auto lg:min-h-0">
               {isRunning ? (
                 <ChartSkeleton />
               ) : (
@@ -159,13 +168,32 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
               )}
             </section>
             <section className="order-2 max-h-[200px] min-h-0 overflow-y-auto rounded-xl border border-edge bg-surface px-4 py-3 lg:order-1 lg:max-h-none">
-              {isRunning ? <InsightSkeleton /> : <InsightPanel plan={plan} scope={scope} />}
+              {isRunning ? (
+                <InsightSkeleton />
+              ) : (
+                <InsightPanel
+                  plan={plan}
+                  scope={scope}
+                  visibleWeeks={visibleWeeks}
+                  onViewSku={(action) => {
+                    const row =
+                      tableRows.find(
+                        (candidate) =>
+                          candidate.sku === action.sku && candidate.weekStart === action.weekStart,
+                      ) ??
+                      buildTableRows(plan, scope, [action.weekStart]).find(
+                        (candidate) => candidate.sku === action.sku,
+                      )
+                    if (row) setSelected(row)
+                  }}
+                />
+              )}
             </section>
           </div>
 
           <section className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-xl border border-edge bg-surface lg:min-h-0">
             <div className="flex shrink-0 items-baseline justify-between gap-3 border-b border-edge px-4 py-2.5">
-              <h2 className="text-[13px] font-medium text-ink">Weekly build plan</h2>
+              <h2 className="text-[15px] font-medium text-ink">Weekly build plan</h2>
               <span className="text-[11px] text-ink-faint tnum">
                 {weekLabelLong(visibleWeeks[0])} — {weekLabelLong(visibleWeeks.at(-1)!)}
               </span>
@@ -179,6 +207,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   selectedKey={selected?.key ?? null}
                   onSelect={setSelected}
                   diff={diff}
+                  dealerStock={appliedPolicy.dealerStock}
                 />
               )}
             </div>
@@ -201,6 +230,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   candidate.weekStart === selected.weekStart && candidate.line === selected.line,
               )}
               rule={plan.policy.rationing}
+              dealerStock={plan.policy.dealerStock}
               onClose={() => setSelected(null)}
               onSelectSku={(sku) => {
                 const next =

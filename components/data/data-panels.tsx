@@ -96,7 +96,7 @@ export function OpeningPosition({ plan }: { plan: BuildPlan }) {
       </div>
       <p className="px-5 py-3 text-[11.5px] leading-relaxed text-ink-faint">
         Cover is negative where unfulfilled orders exceed stock on hand. Dealer floor stock is listed
-        separately because it can only serve dealer demand.
+        separately from plant stock.
       </p>
     </Card>
   )

@@ -1,16 +1,15 @@
 'use client'
 
 /**
- * The five numbers that answer "are we hitting target, and what will it cost".
+ * The numbers that answer: is this plan hitting target, where is it not, and why.
  *
- * Weeks of supply is per line, so with every line in view the cover figures are
- * shown as a range rather than a blended average — the range is the honest
- * answer, and narrowing the product group makes it exact.
+ * SKU-week attainment is the primary "are we hitting target" figure. Line cover
+ * at the end of the horizon is a recovery check, not a substitute for it.
  */
 import { LINE_LABELS } from '@/lib/domain'
 import { compactUnits, percent, units, weekLabelLong, weeks } from '@/lib/format'
 import type { BuildPlan } from '@/lib/engine'
-import { insightsFor } from '@/lib/engine/insights'
+import { insightsFor, type InsightAction } from '@/lib/engine/insights'
 import { scopeKpis, type Scope, type ScopeKpis } from '@/lib/engine/scope'
 import { Meter, Bone, cx } from '@/components/ui/primitives'
 import { InfoTip } from '@/components/ui/info-tip'
@@ -20,19 +19,21 @@ export function KpiRow({
   plan,
   previousPlan,
   scope,
+  visibleWeeks,
 }: {
   plan: BuildPlan
   /** The plan before the last run, for `was …` comparisons. */
   previousPlan: BuildPlan | null
   scope: Scope
+  visibleWeeks: string[]
 }) {
-  const cards = cardsFor(scopeKpis(plan, scope))
-  // Built through the same formatters, so a card is only marked as changed when
-  // the figure on screen genuinely reads differently.
-  const before = previousPlan ? cardsFor(scopeKpis(previousPlan, scope)) : null
+  const cards = cardsFor(scopeKpis(plan, scope, visibleWeeks), visibleWeeks.length < plan.weeks.length)
+  const before = previousPlan
+    ? cardsFor(scopeKpis(previousPlan, scope, visibleWeeks), visibleWeeks.length < previousPlan.weeks.length)
+    : null
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
       {cards.map((card, index) => {
         const was = before?.[index]
         return (
@@ -57,71 +58,26 @@ interface KpiCard {
   meter?: number
 }
 
-function cardsFor(kpis: ScopeKpis): KpiCard[] {
+function cardsFor(kpis: ScopeKpis, rangeScoped: boolean): KpiCard[] {
   const isRange = kpis.linesInScope > 1
   const onTrack = kpis.linesAtTarget === kpis.linesInScope
+  const tightest =
+    kpis.tightestLine && kpis.linesInScope > 1
+      ? `Tightest line: ${LINE_LABELS[kpis.tightestLine]}`
+      : `${compactUnits(kpis.totalBuild)} of ${compactUnits(kpis.totalCapacity)} units`
 
   return [
     {
-      label: 'Target cover',
-      value: range(kpis.targetNowLow, kpis.targetNowHigh),
-      detail:
-        kpis.targetNowHigh === kpis.targetHigh && kpis.targetNowLow === kpis.targetLow
-          ? isRange
-            ? 'Varies by line'
-            : 'From the brief'
-          : `Steps to ${range(kpis.targetLow, kpis.targetHigh)} in 2028`,
-      hint: isRange
-        ? 'Required weeks of cover. A range means the lines in view have different targets.'
-        : undefined,
-    },
-    {
-      label: 'Cover at snapshot',
-      value:
-        isRange && kpis.currentLow !== kpis.currentHigh
-          ? `${weeks(kpis.currentLow)} \u2013 ${weeks(kpis.currentHigh)}`
-          : weeks(kpis.currentHigh),
-      tone: kpis.currentLow < kpis.targetLow ? 'negative' : 'neutral',
-      detail: kpis.currentLow < 0 ? 'More units owed than held' : 'Opening position',
-      hint:
-        isRange && kpis.currentLow !== kpis.currentHigh
-          ? 'Opening cover by line. A range means the lines in view start at different positions.'
-          : kpis.currentLow < 0
-            ? 'Negative cover means more units are owed than held at the snapshot.'
-            : undefined,
-    },
-    {
-      label: 'End-of-horizon line cover',
-      value: `${kpis.linesAtTarget} / ${kpis.linesInScope}`,
-      tone: onTrack ? 'positive' : 'warning',
-      detail:
-        kpis.skuWeeksMissedToCapacity > 0
-          ? 'Line averages may mask SKU-level shortages'
-          : kpis.linesInScope === 1
-            ? onTrack
-              ? 'This line finishes at target'
-              : 'This line finishes below target'
-            : 'Every line finishes at target',
-      hint: isRange
-        ? `Projected cover by line is ${weeks(kpis.projectedLow)} – ${weeks(kpis.projectedHigh)}. A line can be at target while one of its sizes is not.`
-        : `Projected cover ${weeks(kpis.projectedHigh)} against a ${kpis.targetHigh}w target.`,
-    },
-    {
-      label: 'SKU target attainment',
+      label: rangeScoped ? 'Selected range target attainment' : 'Horizon target attainment',
       value: `${units(kpis.skuWeeksAtTarget)} / ${units(kpis.skuWeeks)}`,
       tone: kpis.skuWeeksMissedToCapacity === 0 ? 'positive' : 'warning',
       detail:
         kpis.skuWeeksMissedToCapacity === 0
-          ? 'Every SKU-week at target'
-          : `${units(kpis.skuWeeksMissedToCapacity)} misses due to capacity`,
-      hint: 'One count per SKU per planned week. A miss is a week whose ending cover is below target; on this plan those are weeks the SKU was shorted on a constrained line.',
-    },
-    {
-      label: 'Overall capacity utilization',
-      value: percent(kpis.utilization, 1),
-      detail: `${compactUnits(kpis.totalBuild)} of ${compactUnits(kpis.totalCapacity)} units`,
-      meter: kpis.utilization,
-      hint: 'Planned build as a share of capacity over the full horizon. The table footer shows selected range utilization.',
+          ? `${units(kpis.skuWeeksAtTarget)} of ${units(kpis.skuWeeks)} SKU-weeks meet target`
+          : `${units(kpis.skuWeeksAtTarget)} of ${units(kpis.skuWeeks)} SKU-weeks meet target and ${units(kpis.skuWeeksMissedToCapacity)} miss due to capacity constraints`,
+      hint: rangeScoped
+        ? 'One count per SKU per week in the selected date range. A miss is a week whose ending cover is below target because the SKU was shorted on a constrained line.'
+        : 'One count per SKU per planned week over the full horizon. A miss is a week whose ending cover is below target because the SKU was shorted on a constrained line.',
     },
     {
       label: 'Backlog',
@@ -130,13 +86,45 @@ function cardsFor(kpis: ScopeKpis): KpiCard[] {
       detail: kpis.backlogClearedWeek
         ? `Clears ${weekLabelLong(kpis.backlogClearedWeek)}`
         : `${units(kpis.backlogAtEnd)} still owed at the end`,
+      hint: 'Opening backlog at the snapshot, and the week it reaches zero across the lines in view.',
+    },
+    {
+      label: 'Overall plan utilization',
+      value: percent(kpis.utilization, 0),
+      detail: tightest,
+      meter: kpis.utilization,
+      hint: 'Planned build as a share of capacity over the full horizon. The table footer shows selected-range utilization. Capacity cannot be transferred across lines.',
+    },
+    {
+      label: 'End-of-horizon line status',
+      value: `${kpis.linesAtTarget} / ${kpis.linesInScope}`,
+      tone: onTrack ? 'positive' : 'warning',
+      detail:
+        `${kpis.linesAtTarget} / ${kpis.linesInScope} ${kpis.linesInScope === 1 ? 'line finishes' : 'lines finish'} the horizon at target` +
+        (kpis.skuWeeksMissedToCapacity > 0
+          ? '. Individual SKU shortages occur earlier in constrained weeks.'
+          : ''),
+      hint:
+        kpis.skuWeeksMissedToCapacity > 0
+          ? 'Line cover at the last planned week. Individual SKU shortages occur earlier in constrained weeks.'
+          : `Projected cover by line is ${weeks(kpis.projectedLow)}${kpis.projectedLow !== kpis.projectedHigh ? ` – ${weeks(kpis.projectedHigh)}` : ''}.`,
+    },
+    {
+      label: 'Cover at snapshot',
+      value:
+        isRange && kpis.currentLow !== kpis.currentHigh
+          ? `${weeks(kpis.currentLow)} \u2013 ${weeks(kpis.currentHigh)}`
+          : weeks(kpis.currentHigh),
+      tone: kpis.currentLow < kpis.targetNowLow ? 'negative' : 'neutral',
+      detail: kpis.currentLow < 0 ? 'Backlog exceeds available inventory' : 'Opening position',
+      hint:
+        kpis.currentLow < 0
+          ? 'Negative values mean backlog exceeds available inventory at the snapshot.'
+          : isRange && kpis.currentLow !== kpis.currentHigh
+            ? 'Opening cover by line at the snapshot. A range means the lines in view start at different positions.'
+            : 'Opening cover at the snapshot, before any planned build.',
     },
   ]
-}
-
-/** `8w`, or `8–15w` when the lines in scope disagree. */
-function range(low: number, high: number): string {
-  return low === high ? `${high}w` : `${low}\u2013${high}w`
 }
 
 function Kpi({
@@ -194,13 +182,23 @@ function Kpi({
   )
 }
 
-export function InsightPanel({ plan, scope }: { plan: BuildPlan; scope: Scope }) {
-  const insights = insightsFor(plan, scope)
+export function InsightPanel({
+  plan,
+  scope,
+  visibleWeeks,
+  onViewSku,
+}: {
+  plan: BuildPlan
+  scope: Scope
+  visibleWeeks: string[]
+  onViewSku?: (action: InsightAction) => void
+}) {
+  const insights = insightsFor(plan, scope, visibleWeeks)
 
   return (
     <div className="flex h-full flex-col">
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h2 className="text-[13px] font-medium text-ink">Planner insight</h2>
+        <h2 className="text-[15px] font-medium text-ink">What to watch</h2>
         <span className="text-[11px] text-ink-faint" title="Generated from the plan on screen">
           {scope === 'all' ? 'All lines' : LINE_LABELS[scope]}
         </span>
@@ -209,8 +207,11 @@ export function InsightPanel({ plan, scope }: { plan: BuildPlan; scope: Scope })
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
         {insights.map((insight) => (
           <div
-            key={insight.title}
-            className={cx('flex gap-2.5', insight.compact && 'mt-auto border-t border-edge pt-2.5')}
+            key={insight.category}
+            className={cx(
+              'flex gap-2.5',
+              insight.category === 'Recommended focus' && 'mt-auto border-t border-edge pt-2.5',
+            )}
           >
             <span
               className={cx(
@@ -221,15 +222,17 @@ export function InsightPanel({ plan, scope }: { plan: BuildPlan; scope: Scope })
               {insight.tone === 'watch' ? <WarningIcon /> : <InfoIcon />}
             </span>
             <div>
-              {!insight.compact && <div className="text-[12px] font-medium text-ink">{insight.title}</div>}
-              <p
-                className={cx(
-                  'leading-snug text-ink-muted',
-                  insight.compact ? 'text-[11.5px]' : 'mt-0.5 text-[12px]',
-                )}
-              >
-                {insight.body}
-              </p>
+              <div className="text-[15px] font-medium text-ink">{insight.category}</div>
+              <p className="mt-0.5 text-[14px] leading-snug text-ink-muted">{insight.body}</p>
+              {insight.action && onViewSku && (
+                <button
+                  type="button"
+                  onClick={() => onViewSku(insight.action!)}
+                  className="mt-1 text-[14px] text-accent-bright underline decoration-dotted underline-offset-2 transition-colors hover:text-ink"
+                >
+                  {insight.action.label}
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -239,17 +242,16 @@ export function InsightPanel({ plan, scope }: { plan: BuildPlan; scope: Scope })
 }
 
 const KPI_LABELS = [
-  'Target cover',
-  'Cover at snapshot',
-  'End-of-horizon line cover',
-  'SKU target attainment',
-  'Overall capacity utilization',
+  'Selected range target attainment',
   'Backlog',
+  'Overall plan utilization',
+  'End-of-horizon line status',
+  'Cover at snapshot',
 ] as const
 
 export function KpiRowSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3" aria-hidden>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5" aria-hidden>
       {KPI_LABELS.map((label) => (
         <div key={label} className="rounded-xl border border-edge bg-surface px-4 py-3">
           <div className="eyebrow">{label}</div>
@@ -265,19 +267,18 @@ export function InsightSkeleton() {
   return (
     <div className="flex h-full flex-col" aria-hidden>
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h2 className="text-[13px] font-medium text-ink">Planner insight</h2>
+        <h2 className="text-[15px] font-medium text-ink">What to watch</h2>
         <Bone className="h-3 w-16" />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <Bone className="h-3 w-14" />
+        <Bone className="h-3 w-16" />
         <Bone className="h-3 w-full" />
         <Bone className="h-3 w-11/12" />
-        <Bone className="mt-1 h-3 w-10" />
+        <Bone className="mt-1 h-3 w-12" />
         <Bone className="h-3 w-full" />
         <Bone className="h-3 w-4/5" />
-        <div className="mt-auto border-t border-edge pt-2.5">
-          <Bone className="h-3 w-3/4" />
-        </div>
+        <Bone className="mt-1 h-3 w-14" />
+        <Bone className="h-3 w-full" />
       </div>
     </div>
   )

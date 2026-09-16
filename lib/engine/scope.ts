@@ -38,9 +38,12 @@ export interface ScopeKpis {
   backlogAtEnd: number
   backlogClearedWeek: string | null
   unmetDemand: number
+  /** Highest-utilization line in this product-group scope, over the full horizon. */
+  tightestLine: LineId | null
+  tightestUtilization: number
 }
 
-export function scopeKpis(plan: BuildPlan, scope: Scope): ScopeKpis {
+export function scopeKpis(plan: BuildPlan, scope: Scope, weeks?: string[]): ScopeKpis {
   const lines = scope === 'all' ? plan.kpis.lines : plan.kpis.lines.filter((line) => line.line === scope)
 
   const totalBuild = sum(lines, (line) => line.totalBuild)
@@ -60,11 +63,16 @@ export function scopeKpis(plan: BuildPlan, scope: Scope): ScopeKpis {
     .filter((entry) => entry.weekStart === plan.weeks[0])
     .map((entry) => entry.targetWeeks)
 
-  const rows = plan.rows.filter((row) => scope === 'all' || row.line === scope)
+  const weekSet = weeks ? new Set(weeks) : null
+  const rows = plan.rows.filter(
+    (row) => (scope === 'all' || row.line === scope) && (!weekSet || weekSet.has(row.weekStart)),
+  )
   const skuWeeksAtTarget = rows.filter((row) => row.endingCoverage >= row.targetWeeks).length
   const skuWeeksMissedToCapacity = rows.filter(
     (row) => row.endingCoverage < row.targetWeeks && row.desiredBuild > row.build,
   ).length
+
+  const tightest = [...lines].sort((a, b) => b.utilization - a.utilization)[0] ?? null
 
   return {
     targetNowLow: firstWeekTargets.length === 0 ? 0 : Math.min(...firstWeekTargets),
@@ -87,6 +95,8 @@ export function scopeKpis(plan: BuildPlan, scope: Scope): ScopeKpis {
     backlogAtEnd: sum(lines, (line) => line.backlogAtEnd),
     backlogClearedWeek,
     unmetDemand: sum(lines, (line) => line.unmetDemand),
+    tightestLine: tightest?.line ?? null,
+    tightestUtilization: tightest?.utilization ?? 0,
   }
 }
 

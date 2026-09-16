@@ -59,7 +59,7 @@ export function Card({
 export function CardTitle({ children, hint }: { children: ReactNode; hint?: string }) {
   return (
     <header className="mb-4 flex items-baseline justify-between gap-4">
-      <h2 className="text-[13px] font-medium text-ink">{children}</h2>
+      <h2 className="text-[15px] font-medium text-ink">{children}</h2>
       {hint && <span className="text-[11.5px] text-ink-faint tnum">{hint}</span>}
     </header>
   )

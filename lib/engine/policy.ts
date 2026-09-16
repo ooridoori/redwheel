@@ -6,7 +6,7 @@
  * what it is" always has an answer that points at a policy rather than at code.
  */
 import type { LineId } from '../domain'
-import type { DealerStockTreatment } from './dealer-buffer'
+import { DEALER_SCENARIO_LABELS, type DealerStockTreatment } from './dealer-buffer'
 
 /**
  * How to divide a line's weekly units when the SKUs on it want more than there
@@ -71,9 +71,32 @@ export const RATIONING_LABELS: Record<RationingRule, string> = {
 }
 
 export const RATIONING_DESCRIPTIONS: Record<RationingRule, string> = {
-  'worst-first': 'Whoever is furthest below target is served until they catch up.',
-  proportional: 'Every SKU receives the same fraction of its build needed.',
-  'backlog-first': 'Units already owed to customers are built before any buffer.',
+  'worst-first': 'Capacity goes first to the SKU furthest below its target cover.',
+  proportional: 'Each SKU receives the same fraction of its required build.',
+  'backlog-first': 'Capacity prioritizes existing backlog before rebuilding forward cover.',
+}
+
+export const ALLOCATION_BADGE_LABELS: Record<RationingRule, string> = {
+  'worst-first': 'Prioritized — furthest below target',
+  proportional: 'Allocated proportionally to required build',
+  'backlog-first': 'Prioritized to serve existing backlog',
+}
+
+export const ALLOCATION_PEER_CAPTIONS: Record<RationingRule, string> = {
+  'worst-first': 'furthest below target first',
+  proportional: 'split in proportion to required build',
+  'backlog-first': 'existing backlog first',
+}
+
+/** True when target-cover rules still match the brief, regardless of rationing or dealer treatment. */
+export function usesBriefTargets(policy: Policy): boolean {
+  return JSON.stringify(policy.targets) === JSON.stringify(DEFAULT_POLICY.targets)
+}
+
+/** Compact line for the always-visible scenario summary. Driven by the applied policy. */
+export function scenarioSummary(policy: Policy): string {
+  const targets = usesBriefTargets(policy) ? 'Brief cover targets' : 'Custom cover targets'
+  return `${RATIONING_LABELS[policy.rationing]} \u00b7 ${DEALER_SCENARIO_LABELS[policy.dealerStock]} \u00b7 ${targets}`
 }
 
 /** The target in force for a line in a given week. */

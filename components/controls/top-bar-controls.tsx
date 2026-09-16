@@ -116,8 +116,8 @@ export function DateRangeFilter({
             />
           ))}
           <p className="mt-1.5 border-t border-edge pt-2 text-[11px] leading-relaxed text-ink-faint">
-            The range filters the table and shades the chart. Cover KPIs and overall capacity
-            utilization always use the full horizon.
+            The range filters the table, shades the chart, and scopes SKU-week target attainment.
+            Snapshot cover, backlog, utilization, and end-of-horizon line status use the full plan.
           </p>
         </div>
       )}

@@ -12,11 +12,17 @@ import { LINE_LABELS } from '@/lib/domain'
 import { units, weekLabelLong, weeks, weeksPhrase } from '@/lib/format'
 import {
   derivationOf,
+  peersInPolicyOrder,
   type EquationTerm,
   type PeerStanding,
   type TermRole,
 } from '@/lib/engine/derivation'
-import type { RationingRule } from '@/lib/engine/policy'
+import {
+  ALLOCATION_BADGE_LABELS,
+  ALLOCATION_PEER_CAPTIONS,
+  type RationingRule,
+} from '@/lib/engine/policy'
+import type { DealerStockTreatment } from '@/lib/engine/dealer-buffer'
 import type { PlanRow } from '@/lib/engine'
 import { Badge, Divider, cx } from '@/components/ui/primitives'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '@/components/ui/icons'
@@ -27,12 +33,14 @@ export function DerivationDrawer({
   row,
   lineRows,
   rule,
+  dealerStock,
   onClose,
   onSelectSku,
 }: {
   row: TableRow
   lineRows: PlanRow[]
   rule: RationingRule
+  dealerStock: DealerStockTreatment
   onClose: () => void
   onSelectSku: (sku: string) => void
 }) {
@@ -103,7 +111,7 @@ export function DerivationDrawer({
             Required build: {units(planRow.desiredBuild)} units
           </p>
           <Expandable label="How that number is calculated">
-            <Equation terms={derivation.need} compact />
+            <Equation terms={annotateNeed(derivation.need, dealerStock)} compact />
           </Expandable>
         </section>
 
@@ -144,7 +152,7 @@ export function DerivationDrawer({
             lineCapacity={lineWeek.capacity}
           />
           <PeerList
-            peers={derivation.peers}
+            peers={peersInPolicyOrder(derivation.peers, rule)}
             competing={competing}
             rule={rule}
             onSelectSku={onSelectSku}
@@ -319,8 +327,8 @@ function AllocationCopy({
     const thisWon = winner?.sku === selected.sku
     return (
       <p className="mt-2 text-[12.5px] leading-snug text-ink-muted">
-        Both sizes need production, and the line cannot cover them. The engine serves whoever is
-        furthest below target first
+        Both sizes need production, and the line cannot cover them. Capacity goes first to the SKU
+        furthest below its target cover
         {thisWon
           ? `: ${selected.sku} began at ${weeksPhrase(selected.startingCoverage)} of cover, so it receives ${units(selected.build)} of the ${units(lineCapacity)} available.`
           : `. Capacity goes to ${winner.sku}, which began at ${weeksPhrase(winner.startingCoverage)} of cover versus this SKU’s ${weeksPhrase(selected.startingCoverage)}.`}
@@ -328,10 +336,32 @@ function AllocationCopy({
     )
   }
 
+  if (competing && rule === 'proportional') {
+    return (
+      <p className="mt-2 text-[12.5px] leading-snug text-ink-muted">
+        Both sizes need production, and the line cannot cover them. Each SKU receives the same
+        fraction of its required build. {selected.sku} asked for {units(selected.desiredBuild)} units
+        and receives {units(selected.build)} of the {units(lineCapacity)} available.
+      </p>
+    )
+  }
+
+  if (competing && rule === 'backlog-first') {
+    return (
+      <p className="mt-2 text-[12.5px] leading-snug text-ink-muted">
+        Both sizes need production, and the line cannot cover them. Capacity first serves existing
+        backlog before rebuilding forward cover.
+        {selected.startingBacklog > 0
+          ? ` ${selected.sku} is owed ${units(selected.startingBacklog)} units and receives ${units(selected.build)} of the ${units(lineCapacity)} available.`
+          : ` ${selected.sku} has no opening backlog this week and receives ${units(selected.build)} units after owed demand is served.`}
+      </p>
+    )
+  }
+
   const recipient = others.find((peer) => peer.build > 0)
   return (
     <p className="mt-2 text-[12.5px] leading-snug text-ink-muted">
-      Limited capacity was divided under the current rationing rule
+      Limited capacity was divided under the current allocation policy
       {recipient ? `, with ${recipient.sku} receiving ${units(recipient.build)} units.` : '.'}
     </p>
   )
@@ -523,18 +553,19 @@ function PeerList({
 }) {
   if (peers.length < 2) return null
 
-  const worstFirst = rule === 'worst-first'
+  const caption = competing ? ALLOCATION_PEER_CAPTIONS[rule] : null
+  const maxBacklog = Math.max(0, ...peers.filter((peer) => peer.desiredBuild > 0).map((peer) => peer.startingBacklog))
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-lg border border-edge">
       <div className="border-b border-edge bg-raised/40 px-3 py-1.5 text-[11px] text-ink-faint">
         Same line this week
-        {competing && worstFirst ? ' · furthest below target first' : null}
+        {caption ? ` · ${caption}` : null}
       </div>
       <ul className="divide-y divide-edge">
         {peers.map((peer) => {
           const above = peer.startingCoverage >= peer.targetWeeks
-          const showPriority = competing && worstFirst && peer.prioritized && peer.desiredBuild > 0
+          const showPriority = allocationBadge(rule, peer, competing, maxBacklog)
           return (
             <li
               key={peer.sku}
@@ -565,8 +596,8 @@ function PeerList({
                     {above ? 'Already above target' : 'Below target'}
                   </Badge>
                   {showPriority && (
-                    <Badge tone="accent" title="Chosen first because it started furthest below target">
-                      Prioritized — furthest below target
+                    <Badge tone="accent" title={ALLOCATION_BADGE_LABELS[rule]}>
+                      {ALLOCATION_BADGE_LABELS[rule]}
                     </Badge>
                   )}
                 </div>
@@ -593,4 +624,37 @@ function PeerList({
       </ul>
     </div>
   )
+}
+
+function allocationBadge(
+  rule: RationingRule,
+  peer: PeerStanding,
+  competing: boolean,
+  maxBacklog: number,
+): boolean {
+  if (!competing || peer.desiredBuild === 0) return false
+  if (rule === 'worst-first') return peer.prioritized
+  if (rule === 'proportional') return peer.isSelected && peer.build > 0
+  return maxBacklog > 0 && peer.startingBacklog === maxBacklog && peer.build > 0
+}
+
+function annotateNeed(need: EquationTerm[], treatment: DealerStockTreatment): EquationTerm[] {
+  return need.map((term) => {
+    if (term.label === 'Starting inventory' && treatment === 'central') {
+      return { ...term, note: 'Includes dealer-held inventory (pooled with plant stock).' }
+    }
+    if (term.label === 'Current plant demand' && treatment === 'exclude') {
+      return {
+        ...term,
+        note: 'Dealer-held inventory is ignored as supply; dealer-channel demand still reaches the plant.',
+      }
+    }
+    if (term.label === 'Current plant demand' && treatment === 'central' && !term.note) {
+      return {
+        ...term,
+        note: 'Dealer-channel demand reaches the plant in full; dealer stock is counted in starting inventory.',
+      }
+    }
+    return term
+  })
 }

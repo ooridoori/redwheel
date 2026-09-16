@@ -1,7 +1,8 @@
 'use client'
 
 /**
- * The decisions, made adjustable.
+ * Scenario configuration: the decisions that change the plan, grouped so a
+ * client can see what is being assumed before Run allocation is pressed.
  *
  * Controls edit a *draft* policy; the plan only changes when Run allocation is
  * pressed. That gives the brief's "single-button engine" a literal button, and
@@ -22,18 +23,18 @@ import {
   type RationingRule,
 } from '@/lib/engine/policy'
 import { Popover } from '@/components/ui/popover'
-import { PillGroup, cx } from '@/components/ui/primitives'
+import { cx } from '@/components/ui/primitives'
 
 const RATIONING_OPTIONS = (Object.keys(RATIONING_LABELS) as RationingRule[]).map((rule) => ({
   value: rule,
   label: RATIONING_LABELS[rule],
-  title: RATIONING_DESCRIPTIONS[rule],
+  description: RATIONING_DESCRIPTIONS[rule],
 }))
 
 const DEALER_OPTIONS = (Object.keys(DEALER_TREATMENT_LABELS) as DealerStockTreatment[]).map((treatment) => ({
   value: treatment,
   label: DEALER_TREATMENT_LABELS[treatment],
-  title: DEALER_TREATMENT_DESCRIPTIONS[treatment],
+  description: DEALER_TREATMENT_DESCRIPTIONS[treatment],
 }))
 
 export function AssumptionsPopover({
@@ -70,16 +71,19 @@ export function AssumptionsPopover({
     <Popover
       label={
         <>
-          <span className="text-ink-faint">Assumptions</span>
-          <span className="text-ink">{RATIONING_LABELS[draft.rationing]}</span>
+          <span className="text-ink-faint">Scenario</span>
+          <span className="text-ink">Configure</span>
         </>
       }
       badge={isDirty ? 'dot' : null}
       align="right"
-      width={420}
+      width={460}
     >
-      <div className="flex flex-col gap-4">
-        <Field label="Target cover" help="Required weeks of cover. Change a value, then run allocation to see the effect.">
+      <div className="flex flex-col gap-5">
+        <Field
+          label="Target cover"
+          help="Required weeks of cover by line. Change a value, then run allocation to see the effect."
+        >
           <div className="flex flex-col gap-1.5">
             {LINES.map((line) => (
               <div key={line} className="flex items-center justify-between gap-3">
@@ -100,16 +104,16 @@ export function AssumptionsPopover({
           </div>
         </Field>
 
-        <Field label="When a line cannot build everything" help={RATIONING_DESCRIPTIONS[draft.rationing]}>
-          <PillGroup
+        <Field label="Capacity allocation policy">
+          <ChoiceList
             options={RATIONING_OPTIONS}
             value={draft.rationing}
             onChange={(rationing) => onChange((previous) => ({ ...previous, rationing }))}
           />
         </Field>
 
-        <Field label="Dealer floor stock" help={DEALER_TREATMENT_DESCRIPTIONS[draft.dealerStock]}>
-          <PillGroup
+        <Field label="Dealer stock treatment">
+          <ChoiceList
             options={DEALER_OPTIONS}
             value={draft.dealerStock}
             onChange={(dealerStock) => onChange((previous) => ({ ...previous, dealerStock }))}
@@ -119,9 +123,9 @@ export function AssumptionsPopover({
         <button
           type="button"
           onClick={onReset}
-          className="self-start text-[11.5px] text-ink-faint underline decoration-dotted underline-offset-2 transition-colors hover:text-ink-muted"
+          className="self-start rounded-lg border border-edge bg-raised px-3 py-1.5 text-[12px] text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
         >
-          Reset to the brief&rsquo;s assumptions
+          Reset to brief assumptions
         </button>
       </div>
     </Popover>
@@ -132,8 +136,40 @@ function Field({ label, help, children }: { label: string; help?: string; childr
   return (
     <div>
       <div className="eyebrow">{label}</div>
+      {help && <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">{help}</p>}
       <div className="mt-2">{children}</div>
-      {help && <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">{help}</p>}
+    </div>
+  )
+}
+
+function ChoiceList<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string; description: string }[]
+  value: T
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={cx(
+              'rounded-lg border px-3 py-2 text-left transition-colors',
+              selected ? 'border-accent/40 bg-accent-soft' : 'border-edge bg-raised hover:border-edge-strong',
+            )}
+          >
+            <div className={cx('text-[12.5px]', selected ? 'text-ink' : 'text-ink-muted')}>{option.label}</div>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{option.description}</p>
+          </button>
+        )
+      })}
     </div>
   )
 }

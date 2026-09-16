@@ -110,9 +110,16 @@ export const DEALER_TREATMENT_LABELS: Record<DealerStockTreatment, string> = {
 
 export const DEALER_TREATMENT_DESCRIPTIONS: Record<DealerStockTreatment, string> = {
   'channel-segregated':
-    'Dealer floor stock absorbs dealer-channel demand until it runs out, reducing what the plant must build. It never counts toward Redwheel\u2019s own cover, because those units cannot be reallocated to DTC or commercial orders.',
+    'Dealer-held inventory absorbs dealer-channel demand until depleted, but does not count toward Redwheel\u2019s own cover.',
   exclude:
-    'Dealer stock is ignored. Simple, but discards 2,000 units of supplied data and overstates the demand reaching the plant.',
+    'Dealer-held inventory is ignored as supply. Dealer-channel demand still reaches the plant in full.',
   central:
-    'Dealer stock is pooled with plant and DC inventory. Overstates cover, because a bike on a dealer floor cannot fill a DTC order.',
+    'Dealer-held inventory is treated as available supply when calculating cover. Dealer-channel demand still reaches the plant.',
+}
+
+/** Compact labels for the always-visible scenario summary. */
+export const DEALER_SCENARIO_LABELS: Record<DealerStockTreatment, string> = {
+  'channel-segregated': 'Dealer stock serves dealer demand',
+  exclude: 'Dealer stock ignored',
+  central: 'Dealer stock pooled with plant',
 }

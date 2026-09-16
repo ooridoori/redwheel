@@ -5,6 +5,7 @@
  * engine. That keeps the drawer locked to the number on screen.
  */
 import type { PlanRow, LineWeek } from './index'
+import type { RationingRule } from './policy'
 
 export type TermRole = 'obligation' | 'supply' | 'result' | 'neutral'
 
@@ -76,6 +77,18 @@ export function peersOnLine(selected: PlanRow, lineRows: PlanRow[]): PeerStandin
 
   if (peers.length > 0) peers[0].prioritized = true
   return peers
+}
+
+/** Reorder peers for display to match the active rationing rule. Ranking math stays in the engine. */
+export function peersInPolicyOrder(peers: PeerStanding[], rule: RationingRule): PeerStanding[] {
+  const copy = [...peers]
+  if (rule === 'proportional') {
+    return copy.sort((a, b) => b.desiredBuild - a.desiredBuild || a.sku.localeCompare(b.sku))
+  }
+  if (rule === 'backlog-first') {
+    return copy.sort((a, b) => b.startingBacklog - a.startingBacklog || a.gap - b.gap)
+  }
+  return copy
 }
 
 export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow[]): Derivation {

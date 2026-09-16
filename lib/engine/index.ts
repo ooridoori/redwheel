@@ -19,7 +19,7 @@ import { LINES } from '../domain'
 import type { PlanningInputs } from '../planning-inputs'
 import { coverageWeeks, targetInventory } from './coverage'
 import { demandOnPlant, type DemandOnPlant } from './dealer-buffer'
-import { DEFAULT_POLICY, targetWeeksFor, type Policy, type RationingRule } from './policy'
+import { DEFAULT_POLICY, scenarioSummary, targetWeeksFor, type Policy, type RationingRule } from './policy'
 
 /** One SKU, in one week. The row behind every cell in the plan table. */
 export interface PlanRow {
@@ -458,5 +458,5 @@ function safeRatio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator
 }
 
-export { DEFAULT_POLICY }
+export { DEFAULT_POLICY, scenarioSummary }
 export type { Policy, RationingRule }

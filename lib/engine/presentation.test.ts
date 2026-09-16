@@ -5,6 +5,25 @@ import { derivationOf } from './derivation'
 import { coverGloss, skuStatus, weekTargetSummary } from './status'
 import { weeksPhrase } from '../format'
 import { scopeKpis } from './scope'
+import { chartReconcileCue, insightsFor } from './insights'
+import {
+  coverAxis,
+  coverStatus,
+  recoveryCaption,
+  recoveryEvents,
+} from './line-cover-view'
+import {
+  ALLOCATION_BADGE_LABELS,
+  ALLOCATION_PEER_CAPTIONS,
+  DEFAULT_POLICY,
+  RATIONING_DESCRIPTIONS,
+  scenarioSummary,
+  type RationingRule,
+} from './policy'
+import {
+  DEALER_TREATMENT_DESCRIPTIONS,
+  type DealerStockTreatment,
+} from './dealer-buffer'
 
 const inputs = loadPlanningInputs()
 const plan = runAllocation(inputs)
@@ -130,5 +149,118 @@ describe('horizon KPIs distinguish line cover from SKU-weeks', () => {
     expect(kpis.skuWeeks).toBe(1210)
     expect(kpis.skuWeeksAtTarget).toBe(914)
     expect(kpis.skuWeeksMissedToCapacity).toBe(296)
+  })
+
+  it('scopes SKU-week attainment to the selected weeks without changing horizon line status', () => {
+    const kpis = scopeKpis(plan, 'all', plan.weeks.slice(0, 26))
+    expect(kpis.skuWeeks).toBe(260)
+    expect(kpis.linesAtTarget).toBe(4)
+    expect(kpis.tightestLine).toBeTruthy()
+  })
+})
+
+describe('scenario copy follows the selected policy', () => {
+  const rules: RationingRule[] = ['worst-first', 'proportional', 'backlog-first']
+  const treatments: DealerStockTreatment[] = ['channel-segregated', 'exclude', 'central']
+
+  it('summarises the default brief scenario', () => {
+    expect(scenarioSummary(DEFAULT_POLICY)).toBe(
+      'Worst-off first · Dealer stock serves dealer demand · Brief cover targets',
+    )
+  })
+
+  it('labels edited cover targets as custom without changing other defaults', () => {
+    const custom = {
+      ...DEFAULT_POLICY,
+      targets: {
+        ...DEFAULT_POLICY.targets,
+        'mtb-carbon': [{ from: '2026-01-01', weeks: 20 }],
+      },
+    }
+    expect(scenarioSummary(custom)).toContain('Custom cover targets')
+    expect(scenarioSummary(custom)).toContain('Worst-off first')
+  })
+
+  it('keeps furthest-below language only on worst-off first', () => {
+    for (const rule of rules) {
+      const blob = `${RATIONING_DESCRIPTIONS[rule]} ${ALLOCATION_BADGE_LABELS[rule]} ${ALLOCATION_PEER_CAPTIONS[rule]}`
+      if (rule === 'worst-first') {
+        expect(blob).toMatch(/furthest below/)
+      } else {
+        expect(blob).not.toMatch(/furthest below/)
+      }
+    }
+  })
+
+  it('describes exclude as ignoring supply, not dropping dealer-channel demand', () => {
+    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).toMatch(/ignored as supply/)
+    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).toMatch(/still reaches the plant/)
+    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).not.toMatch(/excluded from both/)
+  })
+
+  it.each(rules.flatMap((rationing) => treatments.map((dealerStock) => ({ rationing, dealerStock }))))(
+    'What to watch stays policy-neutral for $rationing / $dealerStock',
+    ({ rationing, dealerStock }) => {
+      const next = runAllocation(inputs, { ...DEFAULT_POLICY, rationing, dealerStock })
+      const watch = insightsFor(next, 'all')
+      expect(watch[0]?.category).toBe('Plan health')
+      expect(watch.map((item) => item.category)).toContain('SKU mix risk')
+      expect(watch.map((item) => item.category)).toContain('Capacity pressure')
+      const body = watch.map((item) => item.body).join(' ')
+      expect(body).not.toMatch(/furthest below/)
+      expect(body).not.toMatch(/Worst-off first/)
+      expect(body).not.toMatch(/Mountain — Carbon looks on track/)
+    },
+  )
+})
+
+describe('line-level cover chart reads engine line weeks', () => {
+  it('annotates recoveries from firstWeekAtTarget, not from SKU rows', () => {
+    const events = recoveryEvents(plan, ['road-base', 'road-carbon', 'mtb-base', 'mtb-carbon'])
+    expect(events.map((event) => event.line)).toEqual(['road-base', 'road-carbon', 'mtb-carbon'])
+    expect(events.find((event) => event.line === 'mtb-base')).toBeUndefined()
+
+    const carbon = events.find((event) => event.line === 'mtb-carbon')!
+    expect(carbon.week).toBe(plan.kpis.lines.find((line) => line.line === 'mtb-carbon')!.firstWeekAtTarget)
+    expect(carbon.targetWeeks).toBe(15)
+    expect(recoveryCaption(carbon)).toBe('Mountain — Carbon reaches 15w target · Aug 2027')
+  })
+
+  it('caps the axis when Mountain — Base would stretch the target zone', () => {
+    const all = coverAxis(plan, ['road-base', 'road-carbon', 'mtb-base', 'mtb-carbon'])
+    expect(all.capped).toBe(true)
+    expect(all.max).toBeLessThanOrEqual(22)
+    expect(all.overflow[0]?.line).toBe('mtb-base')
+    expect(all.overflow[0]!.peak).toBeGreaterThan(all.max)
+
+    const road = coverAxis(plan, ['road-carbon'])
+    expect(road.capped).toBe(false)
+    expect(road.min).toBeLessThan(0)
+  })
+
+  it('classifies cover against the week’s target from the line-week', () => {
+    const opening = plan.lineWeeks.find((entry) => entry.line === 'mtb-carbon' && entry.weekStart === plan.weeks[0])!
+    expect(coverStatus(opening.endingCoverage, opening.targetWeeks)).toBe('Below target')
+    const recovered = plan.kpis.lines.find((line) => line.line === 'mtb-carbon')!
+    const recoveredWeek = plan.lineWeeks.find(
+      (entry) => entry.line === 'mtb-carbon' && entry.weekStart === recovered.firstWeekAtTarget,
+    )!
+    expect(coverStatus(recoveredWeek.endingCoverage, recoveredWeek.targetWeeks)).toBe('At target')
+  })
+})
+
+describe('What to watch is decision-support, not a line-level recap', () => {
+  it('calls out Mountain — Base SKU mix while the line stays at target', () => {
+    const watch = insightsFor(plan, 'mtb-base', plan.weeks.slice(0, 26))
+    const byCategory = Object.fromEntries(watch.map((item) => [item.category, item]))
+
+    expect(byCategory['Plan health']?.body).toMatch(/stays above its 12w target/)
+    expect(byCategory['SKU mix risk']?.body).toMatch(/Line-level cover is healthy/)
+    expect(byCategory['SKU mix risk']?.body).toMatch(/below target/)
+    expect(byCategory['SKU mix risk']?.action?.label).toBe('View affected SKU')
+    expect(byCategory['SKU mix risk']?.action?.sku).toBeTruthy()
+    expect(byCategory['Capacity pressure']?.body).toMatch(/selected range/)
+    expect(byCategory['Recommended focus']?.body).toMatch(/rebalancing size mix/)
+    expect(chartReconcileCue(plan, 'mtb-base')).toBe('Line healthy overall · SKU mix uneven')
   })
 })
