@@ -21,7 +21,7 @@ For each SKU every week, the engine computes how much ideally needs to be built 
 
 ```text
 Target inventory = forecast demand × weeks of supply
-Required build = target inventory + obligations (backlog + demand) - starting available inventory
+Required build = target inventory + oustanding backlog - starting available inventory
 ```
 
 - If the required build is less than or equal to weekly capacity, build what each SKU needs.
