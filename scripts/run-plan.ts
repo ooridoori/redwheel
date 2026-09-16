@@ -13,7 +13,6 @@ import { LINE_LABELS } from '../lib/domain'
 import type { PlanningInputs } from '../lib/planning-inputs'
 import { runAllocation } from '../lib/engine'
 import { DEFAULT_POLICY, RATIONING_LABELS, type RationingRule } from '../lib/engine/policy'
-import { DEALER_TREATMENT_LABELS } from '../lib/engine/dealer-buffer'
 
 const inputs = JSON.parse(
   readFileSync(join(process.cwd(), 'data', 'planning-inputs.json'), 'utf8'),
@@ -64,36 +63,6 @@ for (const row of plan.rows.filter((entry) => entry.weekStart === plan.weeks[0] 
       `${String(row.targetWeeks).padStart(6)}w`,
       units(row.desiredBuild).padStart(7),
       units(row.build).padStart(7),
-    ].join(' '),
-  )
-}
-
-console.log('\nDealer floor stock absorbing dealer-channel demand:\n')
-console.log('  SKU        on dealer floors   absorbed   weeks covered   runs dry')
-for (const entry of plan.dealerBuffer.absorption) {
-  console.log(
-    [
-      `  ${entry.sku}`,
-      units(entry.openingDealerStock).padStart(17),
-      units(entry.unitsAbsorbed).padStart(10),
-      entry.weeksCovered.toFixed(1).padStart(14),
-      (entry.exhaustedWeek ?? 'never').padStart(12),
-    ].join(' '),
-  )
-}
-console.log(`\n  Total absorbed by dealer stock: ${units(plan.dealerBuffer.totalAbsorbed)} units never built`)
-
-console.log('\nSame plan under each dealer stock treatment:\n')
-console.log('  treatment                       built   util   lines at target   backlog cleared')
-for (const treatment of ['channel-segregated', 'exclude', 'central'] as const) {
-  const alternative = runAllocation(inputs, { ...DEFAULT_POLICY, dealerStock: treatment })
-  console.log(
-    [
-      `  ${DEALER_TREATMENT_LABELS[treatment].padEnd(28)}`,
-      units(alternative.kpis.totalBuild).padStart(7),
-      percent(alternative.kpis.utilization).padStart(6),
-      `${String(alternative.kpis.linesAtTargetAtEnd).padStart(14)}/4`,
-      (alternative.kpis.backlogClearedWeek ?? 'never').padStart(17),
     ].join(' '),
   )
 }

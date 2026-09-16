@@ -11,11 +11,9 @@ import { LINES } from '../domain'
 import { loadPlanningInputs } from '../load-inputs'
 import { runAllocation } from './index'
 import { DEFAULT_POLICY, type RationingRule } from './policy'
-import type { DealerStockTreatment } from './dealer-buffer'
 
 const inputs = loadPlanningInputs()
 const RULES: RationingRule[] = ['worst-first', 'proportional', 'backlog-first']
-const TREATMENTS: DealerStockTreatment[] = ['channel-segregated', 'exclude', 'central']
 
 describe('roll-forward against the real plan', () => {
   it('covers every SKU in every planned week', () => {
@@ -85,15 +83,23 @@ describe('roll-forward against the real plan', () => {
     })
   }
 
-  for (const dealerStock of TREATMENTS) {
-    it(`holds when dealer stock is treated as "${dealerStock}"`, () => {
-      const plan = runAllocation(inputs, { ...DEFAULT_POLICY, dealerStock })
-      for (const row of plan.rows) {
-        expect(row.endingInventory).toBe(row.startingInventory + row.build - row.shipped)
-        expect(row.endingBacklog).toBe(row.startingBacklog + row.forecast - row.shipped)
+  it('never lets dealer-held inventory change opening plant stock or forecast demand', () => {
+    const plan = runAllocation(inputs)
+    for (const product of inputs.products) {
+      const rows = plan.rows.filter((row) => row.sku === product.sku)
+      const plantStock = inputs.openingStock[product.sku] ?? 0
+      const dealerHeld = inputs.dealerStock[product.sku] ?? 0
+
+      expect(rows[0].startingInventory).toBe(plantStock)
+      if (dealerHeld > 0) {
+        expect(rows[0].startingInventory).not.toBe(plantStock + dealerHeld)
       }
-    })
-  }
+
+      for (const row of rows) {
+        expect(row.forecast).toBe(inputs.demand[product.sku]?.[row.weekStart] ?? 0)
+      }
+    }
+  })
 
   it('builds only whole bikes', () => {
     const plan = runAllocation(inputs)

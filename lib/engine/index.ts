@@ -18,7 +18,6 @@ import type { LineId, Product } from '../domain'
 import { LINES } from '../domain'
 import type { PlanningInputs } from '../planning-inputs'
 import { coverageWeeks, targetInventory } from './coverage'
-import { demandOnPlant, type DemandOnPlant } from './dealer-buffer'
 import { DEFAULT_POLICY, scenarioSummary, targetWeeksFor, type Policy, type RationingRule } from './policy'
 
 /** One SKU, in one week. The row behind every cell in the plan table. */
@@ -28,14 +27,10 @@ export interface PlanRow {
   line: LineId
   size: Product['size']
   /**
-   * Demand the plant must serve this week: total forecast less whatever dealer
-   * floor stock absorbed. This is the number the build decision is made on.
+   * Forecast demand the plant must serve this week, across all channels
+   * including dealer-channel forecast. Dealer-held inventory is not subtracted.
    */
   forecast: number
-  /** Total forecast across all three channels, before the dealer buffer. */
-  grossForecast: number
-  /** Dealer-channel demand met from dealer floor stock instead of by building. */
-  absorbedByDealers: number
   startingInventory: number
   startingBacklog: number
   /** Stock less what we owe, at the start of the week. */
@@ -123,8 +118,6 @@ export interface BuildPlan {
   rows: PlanRow[]
   lineWeeks: LineWeek[]
   kpis: PlanKpis
-  /** What the dealer buffer absorbed, and when it ran dry. */
-  dealerBuffer: DemandOnPlant
 }
 
 interface Position {
@@ -135,8 +128,6 @@ interface Position {
 interface Request {
   product: Product
   forecast: number
-  grossForecast: number
-  absorbedByDealers: number
   forwardFromThisWeek: number[]
   forwardFromNextWeek: number[]
   position: Position
@@ -146,11 +137,10 @@ interface Request {
 }
 
 export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_POLICY): BuildPlan {
-  const dealerBuffer = demandOnPlant(inputs, policy.dealerStock)
-  const series = dealerBuffer.net
+  const series = demandSeries(inputs)
   const weekIndex = new Map(inputs.forecastWeeks.map((week, index) => [week, index]))
   const productsByLine = groupByLine(inputs.products)
-  const positions = openingPositions(inputs, policy)
+  const positions = openingPositions(inputs)
 
   const rows: PlanRow[] = []
   const lineWeeks: LineWeek[] = []
@@ -170,14 +160,11 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
         const forwardFromThisWeek = (series[product.sku] ?? []).slice(index)
         const forwardFromNextWeek = forwardFromThisWeek.slice(1)
         const forecast = forwardFromThisWeek[0] ?? 0
-        const grossForecast = (dealerBuffer.gross[product.sku] ?? [])[index] ?? 0
         const needed = targetInventory(forwardFromNextWeek, targetWeeks)
 
         return {
           product,
           forecast,
-          grossForecast,
-          absorbedByDealers: grossForecast - forecast,
           forwardFromThisWeek,
           forwardFromNextWeek,
           position,
@@ -218,8 +205,6 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
           line,
           size: request.product.size,
           forecast,
-          grossForecast: request.grossForecast,
-          absorbedByDealers: request.absorbedByDealers,
           startingInventory,
           startingBacklog,
           startingNet: startingInventory - startingBacklog,
@@ -272,7 +257,7 @@ export function runAllocation(inputs: PlanningInputs, policy: Policy = DEFAULT_P
     }
   }
 
-  return { policy, weeks: inputs.planWeeks, rows, lineWeeks, kpis: summarize(lineWeeks), dealerBuffer }
+  return { policy, weeks: inputs.planWeeks, rows, lineWeeks, kpis: summarize(lineWeeks) }
 }
 
 /**
@@ -420,20 +405,28 @@ function summarize(lineWeeks: LineWeek[]): PlanKpis {
 /**
  * Opening stock and debt per SKU.
  *
- * Dealer stock is only added here under the `central` treatment, which pools it
- * with plant inventory. Under the default it stays downstream and shows up as
- * reduced demand instead.
+ * Dealer-held inventory is already sold and is not Redwheel available stock, so
+ * it is never added here and never subtracted from forecast demand.
  */
-function openingPositions(inputs: PlanningInputs, policy: Policy): Record<string, Position> {
+function openingPositions(inputs: PlanningInputs): Record<string, Position> {
   const positions: Record<string, Position> = {}
   for (const product of inputs.products) {
-    const pooled = policy.dealerStock === 'central' ? (inputs.dealerStock[product.sku] ?? 0) : 0
     positions[product.sku] = {
-      inventory: (inputs.openingStock[product.sku] ?? 0) + pooled,
+      inventory: inputs.openingStock[product.sku] ?? 0,
       backlog: inputs.backlog[product.sku] ?? 0,
     }
   }
   return positions
+}
+
+/** Total forecast demand per SKU, aligned to `forecastWeeks`. Includes dealer-channel forecast. */
+function demandSeries(inputs: PlanningInputs): Record<string, number[]> {
+  const series: Record<string, number[]> = {}
+  for (const product of inputs.products) {
+    const byWeek = inputs.demand[product.sku] ?? {}
+    series[product.sku] = inputs.forecastWeeks.map((week) => byWeek[week] ?? 0)
+  }
+  return series
 }
 
 function groupByLine(products: Product[]): Partial<Record<LineId, Product[]>> {

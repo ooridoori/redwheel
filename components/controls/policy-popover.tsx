@@ -12,11 +12,6 @@
 import { LINES, LINE_LABELS, type LineId } from '@/lib/domain'
 import { weekLabelLong } from '@/lib/format'
 import {
-  DEALER_TREATMENT_DESCRIPTIONS,
-  DEALER_TREATMENT_LABELS,
-  type DealerStockTreatment,
-} from '@/lib/engine/dealer-buffer'
-import {
   RATIONING_DESCRIPTIONS,
   RATIONING_LABELS,
   type Policy,
@@ -29,12 +24,6 @@ const RATIONING_OPTIONS = (Object.keys(RATIONING_LABELS) as RationingRule[]).map
   value: rule,
   label: RATIONING_LABELS[rule],
   description: RATIONING_DESCRIPTIONS[rule],
-}))
-
-const DEALER_OPTIONS = (Object.keys(DEALER_TREATMENT_LABELS) as DealerStockTreatment[]).map((treatment) => ({
-  value: treatment,
-  label: DEALER_TREATMENT_LABELS[treatment],
-  description: DEALER_TREATMENT_DESCRIPTIONS[treatment],
 }))
 
 export function AssumptionsPopover({
@@ -109,14 +98,6 @@ export function AssumptionsPopover({
             options={RATIONING_OPTIONS}
             value={draft.rationing}
             onChange={(rationing) => onChange((previous) => ({ ...previous, rationing }))}
-          />
-        </Field>
-
-        <Field label="Dealer stock treatment">
-          <ChoiceList
-            options={DEALER_OPTIONS}
-            value={draft.dealerStock}
-            onChange={(dealerStock) => onChange((previous) => ({ ...previous, dealerStock }))}
           />
         </Field>
 

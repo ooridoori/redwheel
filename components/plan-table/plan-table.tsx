@@ -17,54 +17,45 @@ import { Badge, Bone, cx } from '@/components/ui/primitives'
 import { InfoTip } from '@/components/ui/info-tip'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@/components/ui/icons'
 import { skuStatus, weekTargetSummary } from '@/lib/engine/status'
-import type { DealerStockTreatment } from '@/lib/engine/dealer-buffer'
 import type { TableRow } from './rows'
 
-function columnsFor(dealerStock: DealerStockTreatment): { label: string; align: 'left' | 'right'; hint?: string }[] {
-  const forecastHint =
-    dealerStock === 'channel-segregated'
-      ? 'Plant demand after dealer-held inventory absorbs dealer-channel demand'
-      : dealerStock === 'exclude'
-        ? 'Plant demand with dealer-held inventory ignored as supply. Dealer-channel demand still reaches the plant.'
-        : 'Plant demand in full. Dealer-held inventory is counted in starting inventory, not subtracted here.'
-  const inventoryHint =
-    dealerStock === 'central'
-      ? 'Plant stock plus dealer-held inventory (pooled treatment)'
-      : 'Plant stock on hand at the start of the week. Dealer-held inventory is not included.'
+const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string }[] = [
+  { label: 'Week', align: 'left' },
+  { label: 'SKU', align: 'left' },
+  { label: 'Line', align: 'left' },
+  {
+    label: 'Forecast',
+    align: 'right',
+    hint: 'Forecast demand the plant must cover this week, including dealer-channel forecast. Dealer-held inventory does not reduce this.',
+  },
+  {
+    label: 'Starting inv',
+    align: 'right',
+    hint: 'Redwheel plant stock at the start of the week. Dealer-held inventory has already been sold and is not included.',
+  },
+  { label: 'Backlog', align: 'right', hint: 'Units already owed to customers' },
+  { label: 'Target cover', align: 'right', hint: 'Required weeks of cover' },
+  { label: 'Build needed', align: 'right', hint: 'Units this SKU needs this week to reach target cover' },
+  { label: 'Planned build', align: 'right', hint: "Units allocated after the line's capacity was divided" },
+  { label: 'Capacity', align: 'right', hint: 'Weekly ceiling for this line, shared across its sizes' },
+  { label: 'Ending inv', align: 'right', hint: 'Stock on hand at the end of the week' },
+  { label: 'Ending cover', align: 'right', hint: 'Weeks of cover at week end, against target cover' },
+]
 
-  return [
-    { label: 'Week', align: 'left' },
-    { label: 'SKU', align: 'left' },
-    { label: 'Line', align: 'left' },
-    { label: 'Forecast', align: 'right', hint: forecastHint },
-    { label: 'Starting inv', align: 'right', hint: inventoryHint },
-    { label: 'Backlog', align: 'right', hint: 'Units already owed to customers' },
-    { label: 'Target cover', align: 'right', hint: 'Required weeks of cover' },
-    { label: 'Build needed', align: 'right', hint: 'Units this SKU needs this week to reach target cover' },
-    { label: 'Planned build', align: 'right', hint: "Units allocated after the line's capacity was divided" },
-    { label: 'Capacity', align: 'right', hint: 'Weekly ceiling for this line, shared across its sizes' },
-    { label: 'Ending inv', align: 'right', hint: 'Stock on hand at the end of the week' },
-    { label: 'Ending cover', align: 'right', hint: 'Weeks of cover at week end, against target cover' },
-  ]
-}
-
-const COLUMN_COUNT = columnsFor('channel-segregated').length
+const COLUMN_COUNT = COLUMNS.length
 
 export function PlanTable({
   rows,
   selectedKey,
   onSelect,
   diff = NO_DIFF,
-  dealerStock = 'channel-segregated',
 }: {
   rows: TableRow[]
   selectedKey: string | null
   onSelect: (row: TableRow) => void
   /** Which builds and cover figures the last run moved. */
   diff?: PlanDiff
-  dealerStock?: DealerStockTreatment
 }) {
-  const COLUMNS = columnsFor(dealerStock)
   const groups = useMemo(() => groupByWeek(rows), [rows])
   const focusWeek =
     rows.find((row) => row.key === selectedKey)?.weekStart ?? groups[0]?.weekStart ?? null
@@ -206,14 +197,7 @@ export function PlanTable({
                     </Cell>
 
                     <Cell weekGroup={false} align="right">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        <span className="tnum text-ink-muted">{units(row.forecast)}</span>
-                        {row.absorbedByDealers > 0 && (
-                          <InfoTip
-                            text={`${units(row.grossForecast)} total demand · ${units(row.absorbedByDealers)} covered by dealer stock · ${units(row.forecast)} remaining factory demand`}
-                          />
-                        )}
-                      </span>
+                      <span className="tnum text-ink-muted">{units(row.forecast)}</span>
                     </Cell>
 
                     <Cell weekGroup={false} align="right">
@@ -460,7 +444,6 @@ export function PlanTableSummary({ rows, diff = NO_DIFF }: { rows: TableRow[]; d
 }
 
 export function PlanTableSkeleton() {
-  const COLUMNS = columnsFor('channel-segregated')
   return (
     <table className="w-full border-separate border-spacing-0 text-[12.5px]" aria-hidden>
       <thead className="sticky top-0 z-10">

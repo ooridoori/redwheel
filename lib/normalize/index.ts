@@ -139,7 +139,7 @@ function describeTranslation(): DataNote[] {
       severity: 'warning',
       source: 'assumption',
       message:
-        'Dealer-held stock serves dealer-channel demand only. It reduces what the plant must build until it runs out, but never counts toward Redwheel\u2019s own cover \u2014 a bike on a dealer floor cannot fill a DTC order or a commercial PO. Ignoring the file or pooling it with plant stock are both selectable alternatives.',
+        'Dealer-held inventory has already been wholesaled and is not Redwheel available stock. It does not offset forecast or production requirements. Dealer-channel forecast still counts as demand the plant must serve.',
     },
     {
       severity: 'warning',

@@ -6,7 +6,6 @@
  * what it is" always has an answer that points at a policy rather than at code.
  */
 import type { LineId } from '../domain'
-import { DEALER_SCENARIO_LABELS, type DealerStockTreatment } from './dealer-buffer'
 
 /**
  * How to divide a line's weekly units when the SKUs on it want more than there
@@ -37,8 +36,6 @@ export interface Policy {
   /** Target weeks of cover per line, in ascending date order. */
   targets: Record<LineId, TargetRule[]>
   rationing: RationingRule
-  /** What the units sitting in dealer shops are allowed to do. See `dealer-buffer.ts`. */
-  dealerStock: DealerStockTreatment
 }
 
 /**
@@ -61,7 +58,6 @@ export const DEFAULT_POLICY: Policy = {
     'mtb-carbon': [{ from: '2026-01-01', weeks: 15 }],
   },
   rationing: 'worst-first',
-  dealerStock: 'channel-segregated',
 }
 
 export const RATIONING_LABELS: Record<RationingRule, string> = {
@@ -88,7 +84,7 @@ export const ALLOCATION_PEER_CAPTIONS: Record<RationingRule, string> = {
   'backlog-first': 'existing backlog first',
 }
 
-/** True when target-cover rules still match the brief, regardless of rationing or dealer treatment. */
+/** True when target-cover rules still match the brief, regardless of rationing. */
 export function usesBriefTargets(policy: Policy): boolean {
   return JSON.stringify(policy.targets) === JSON.stringify(DEFAULT_POLICY.targets)
 }
@@ -96,7 +92,7 @@ export function usesBriefTargets(policy: Policy): boolean {
 /** Compact line for the always-visible scenario summary. Driven by the applied policy. */
 export function scenarioSummary(policy: Policy): string {
   const targets = usesBriefTargets(policy) ? 'Brief cover targets' : 'Custom cover targets'
-  return `${RATIONING_LABELS[policy.rationing]} \u00b7 ${DEALER_SCENARIO_LABELS[policy.dealerStock]} \u00b7 ${targets}`
+  return `${RATIONING_LABELS[policy.rationing]} \u00b7 ${targets}`
 }
 
 /** The target in force for a line in a given week. */

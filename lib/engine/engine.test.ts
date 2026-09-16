@@ -404,44 +404,40 @@ describe('dealer stock', () => {
       capacity: 10_000,
     })
 
-  it('lets dealer floor stock serve dealer demand, reducing what the plant builds', () => {
+  it('never subtracts dealer-held inventory from forecast demand', () => {
     const plan = runAllocation(withDealers())
     const first = plan.rows[0]
 
-    expect(first.grossForecast).toBe(20)
-    expect(first.absorbedByDealers).toBe(10)
-    expect(first.forecast).toBe(10)
+    expect(first.forecast).toBe(20)
+    expect(first.startingInventory).toBe(0)
+  })
+
+  it('does not change production requirements when dealer stock changes', () => {
+    const withStock = runAllocation(withDealers())
+    const withoutStock = runAllocation(
+      makeInputs({
+        specs: [{ sku: 'A', size: 'M', demand: 20, dealerDemand: 10, dealerOnHand: 0, onHand: 0 }],
+        capacity: 10_000,
+      }),
+    )
+
+    expect(withStock.rows[0].forecast).toBe(withoutStock.rows[0].forecast)
+    expect(withStock.rows[0].desiredBuild).toBe(withoutStock.rows[0].desiredBuild)
+    expect(withStock.rows[0].targetInventory).toBe(withoutStock.rows[0].targetInventory)
+    expect(withStock.rows[0].startingInventory).toBe(withoutStock.rows[0].startingInventory)
+    expect(withStock.rows.map((row) => row.build)).toEqual(withoutStock.rows.map((row) => row.build))
+  })
+
+  it('keeps dealer-channel forecast in plant demand even when dealers hold stock', () => {
+    const plan = runAllocation(withDealers())
+    for (const row of plan.rows.filter((entry) => entry.sku === 'A')) {
+      expect(row.forecast).toBe(20)
+    }
   })
 
   it('never turns dealer stock into inventory Redwheel can allocate', () => {
     const plan = runAllocation(withDealers())
     expect(plan.rows[0].startingInventory).toBe(0)
-  })
-
-  it('runs the buffer dry and then sends all dealer demand to the plant', () => {
-    const plan = runAllocation(withDealers())
-    const rows = plan.rows.filter((row) => row.sku === 'A')
-
-    // 40 units of floor stock cover 4 weeks of 10-unit dealer demand.
-    expect(rows.slice(0, 4).map((row) => row.absorbedByDealers)).toEqual([10, 10, 10, 10])
-    expect(rows[4].absorbedByDealers).toBe(0)
-    expect(rows[4].forecast).toBe(20)
-
-    const absorption = plan.dealerBuffer.absorption.find((entry) => entry.sku === 'A')!
-    expect(absorption.unitsAbsorbed).toBe(40)
-    expect(absorption.weeksCovered).toBe(4)
-    expect(absorption.exhaustedWeek).toBe(addWeeks(START, 3))
-  })
-
-  it('absorbs no more than the dealer channel actually demands', () => {
-    const plan = runAllocation(
-      makeInputs({
-        specs: [{ sku: 'A', size: 'M', demand: 20, dealerDemand: 0, dealerOnHand: 500 }],
-        capacity: 10_000,
-      }),
-    )
-    expect(plan.dealerBuffer.totalAbsorbed).toBe(0)
-    expect(plan.rows[0].forecast).toBe(20)
   })
 
   it('leaves backlog alone — owed units still have to be built', () => {
@@ -452,19 +448,7 @@ describe('dealer stock', () => {
       }),
     )
     expect(plan.rows[0].startingBacklog).toBe(60)
-  })
-
-  it('the two alternative treatments bracket the default', () => {
-    const inputs = withDealers()
-    const segregated = runAllocation(inputs, policyWith({ dealerStock: 'channel-segregated' }))
-    const excluded = runAllocation(inputs, policyWith({ dealerStock: 'exclude' }))
-    const central = runAllocation(inputs, policyWith({ dealerStock: 'central' }))
-
-    // Ignoring the file makes the plant look busier; pooling makes it look richer.
-    expect(excluded.rows[0].forecast).toBe(20)
-    expect(excluded.rows[0].desiredBuild).toBeGreaterThan(segregated.rows[0].desiredBuild)
-    expect(central.rows[0].startingInventory).toBe(40)
-    expect(central.rows[0].desiredBuild).toBeLessThan(excluded.rows[0].desiredBuild)
+    expect(plan.rows[0].forecast).toBe(20)
   })
 })
 

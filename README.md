@@ -91,15 +91,15 @@ without exceeding those ceilings.
 ## What the plan concludes
 
 All four lines reach their targets inside the horizon, and every one of the
-5,931 units owed at the snapshot is delivered by 2026-12-21. Carbon mountain
-bikes take until **2027-08-23** to reach 15 weeks of cover — nearly a year —
-and that line runs at 78% of capacity to get there.
+5,931 units owed at the snapshot is delivered by 2027-01-04. Carbon mountain
+bikes take until **2027-09-06** to reach 15 weeks of cover — a year —
+and that line runs at 79% of capacity to get there.
 
 Two results worth noting. At line level, mtb-base sits at or above target in
 **121 of 121 weeks** and looks flawless; one level down, its large size opens
-9.3 weeks short while the medium holds 130 weeks of cover and is correctly
+9.2 weeks short while the medium holds 101 weeks of cover and is correctly
 built zero times in two years. And the rationing rule changes who waits, not
-how much gets built — all three rules build 92,369 units at 75% utilization,
+how much gets built — all three rules build 94,369 units at 76.6% utilization,
 because capacity, not policy, is the binding constraint.
 
 ## What the data says, and what we assumed
@@ -107,13 +107,12 @@ because capacity, not policy, is the binding constraint.
 `npm run build:data` prints a set of data notes, separated into what the files
 state and where we exercised judgement. The consequential ones:
 
-- **Dealer-held stock serves dealer demand only.** The 2,000 units on dealer
-  floors are neither ignored nor pooled with plant inventory. They absorb
-  dealer-channel demand until they run out — 2,000 units Redwheel never has to
-  build — but they never count toward Redwheel's own cover, because a bike at
-  Summit Cycles cannot fill a DTC order or a commercial PO. Both alternative
-  treatments are selectable in the UI: ignoring the file overstates the demand
-  reaching the plant, pooling it overstates cover.
+- **Dealer-held inventory is already sold.** The 2,000 units on dealer floors
+  have been wholesaled and are off Redwheel's books. Dealers manage that
+  inventory independently, so it is not treated as available supply and does
+  not offset forecast or production demand. Dealer-channel *forecast* is
+  separate: expected future dealer demand still counts toward the plant's
+  forecast.
 - **Targets and capacity are stated per line, but the shortage is not.**
   Redwheel states cover targets by class and trim, and capacity by production
   line, while stock, backlog and forecast are per SKU. The engine therefore
@@ -129,8 +128,7 @@ state and where we exercised judgement. The consequential ones:
 - **Dealer stock counts span six different days**, so that file is a
   self-reported roll-up rather than a synchronized snapshot.
 - **Backlog is not reduced by dealer floor stock.** Unfulfilled dealer orders
-  are units Redwheel owes; if a dealer could have served them from their own
-  floor, they would not still be waiting.
+  are units Redwheel still owes; dealer-held inventory does not clear them.
 
 ## Opening position
 

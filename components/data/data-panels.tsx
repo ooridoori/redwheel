@@ -18,16 +18,19 @@ const CHANNEL_COLORS: Record<Channel, string> = {
   commercial: '#3fcf8e',
 }
 
-export function OpeningPosition({ plan }: { plan: BuildPlan }) {
+export function OpeningPosition({
+  plan,
+  dealerStock,
+}: {
+  plan: BuildPlan
+  dealerStock: Record<string, number>
+}) {
   const firstWeek = plan.weeks[0]
-  const dealerOnHandBySku = new Map(
-    plan.dealerBuffer.absorption.map((entry) => [entry.sku, entry.openingDealerStock]),
-  )
   const rows = plan.rows
     .filter((row) => row.weekStart === firstWeek)
     .map((row) => ({
       ...row,
-      dealerOnHand: dealerOnHandBySku.get(row.sku) ?? 0,
+      dealerOnHand: dealerStock[row.sku] ?? 0,
     }))
     .sort((a, b) => a.startingCoverage - a.targetWeeks - (b.startingCoverage - b.targetWeeks))
 
@@ -95,8 +98,9 @@ export function OpeningPosition({ plan }: { plan: BuildPlan }) {
         </table>
       </div>
       <p className="px-5 py-3 text-[11.5px] leading-relaxed text-ink-faint">
-        Cover is negative where unfulfilled orders exceed stock on hand. Dealer floor stock is listed
-        separately from plant stock.
+        Cover is negative where unfulfilled orders exceed Redwheel stock on hand. Dealer floor stock is
+        listed separately: it has already been sold and is not available to the plant. Dealer-channel
+        forecast still counts as demand.
       </p>
     </Card>
   )

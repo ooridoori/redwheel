@@ -22,7 +22,6 @@ import {
   ALLOCATION_PEER_CAPTIONS,
   type RationingRule,
 } from '@/lib/engine/policy'
-import type { DealerStockTreatment } from '@/lib/engine/dealer-buffer'
 import type { PlanRow } from '@/lib/engine'
 import { Badge, Divider, cx } from '@/components/ui/primitives'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '@/components/ui/icons'
@@ -33,14 +32,12 @@ export function DerivationDrawer({
   row,
   lineRows,
   rule,
-  dealerStock,
   onClose,
   onSelectSku,
 }: {
   row: TableRow
   lineRows: PlanRow[]
   rule: RationingRule
-  dealerStock: DealerStockTreatment
   onClose: () => void
   onSelectSku: (sku: string) => void
 }) {
@@ -111,7 +108,7 @@ export function DerivationDrawer({
             Required build: {units(planRow.desiredBuild)} units
           </p>
           <Expandable label="How that number is calculated">
-            <Equation terms={annotateNeed(derivation.need, dealerStock)} compact />
+            <Equation terms={derivation.need} compact />
           </Expandable>
         </section>
 
@@ -636,25 +633,4 @@ function allocationBadge(
   if (rule === 'worst-first') return peer.prioritized
   if (rule === 'proportional') return peer.isSelected && peer.build > 0
   return maxBacklog > 0 && peer.startingBacklog === maxBacklog && peer.build > 0
-}
-
-function annotateNeed(need: EquationTerm[], treatment: DealerStockTreatment): EquationTerm[] {
-  return need.map((term) => {
-    if (term.label === 'Starting inventory' && treatment === 'central') {
-      return { ...term, note: 'Includes dealer-held inventory (pooled with plant stock).' }
-    }
-    if (term.label === 'Current plant demand' && treatment === 'exclude') {
-      return {
-        ...term,
-        note: 'Dealer-held inventory is ignored as supply; dealer-channel demand still reaches the plant.',
-      }
-    }
-    if (term.label === 'Current plant demand' && treatment === 'central' && !term.note) {
-      return {
-        ...term,
-        note: 'Dealer-channel demand reaches the plant in full; dealer stock is counted in starting inventory.',
-      }
-    }
-    return term
-  })
 }

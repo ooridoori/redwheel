@@ -44,8 +44,6 @@ export interface Derivation {
   capacityConstrained: boolean
   peers: PeerStanding[]
   endingBacklog: number
-  absorbedByDealers: number
-  grossForecast: number
   forecast: number
 }
 
@@ -113,10 +111,7 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
       value: row.forecast,
       operator: '+',
       role: 'obligation',
-      note:
-        row.absorbedByDealers > 0
-          ? `${row.absorbedByDealers.toLocaleString()} of ${row.grossForecast.toLocaleString()} covered by dealer stock`
-          : undefined,
+      note: 'Includes dealer-channel forecast. Dealer-held inventory is not subtracted.',
     },
     {
       label: 'Starting inventory',
@@ -241,8 +236,6 @@ export function derivationOf(row: PlanRow, lineWeek: LineWeek, lineRows: PlanRow
     capacityConstrained,
     peers: peersOnLine(row, lineRows),
     endingBacklog: row.endingBacklog,
-    absorbedByDealers: row.absorbedByDealers,
-    grossForecast: row.grossForecast,
     forecast: row.forecast,
   }
 }

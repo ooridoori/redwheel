@@ -42,7 +42,7 @@ export interface PlanningInputs {
   products: Product[]
   /** Units Redwheel holds and can allocate, by SKU. */
   openingStock: Record<string, number>
-  /** Units sitting with dealers, by SKU. Reported, never allocated. */
+  /** Units sitting with dealers, by SKU. Already sold; informational only, never allocated. */
   dealerStock: Record<string, number>
   /** Unfulfilled units owed, by SKU. */
   backlog: Record<string, number>
@@ -143,7 +143,7 @@ function summarizeSources(master: MasterData): SourceSummary[] {
     {
       file: 'dealer_stock_report.csv',
       rows: master.stock.filter((position) => position.owner === 'dealer').length,
-      becomes: 'Downstream buffer against dealer demand',
+      becomes: 'Dealer-held inventory (already sold; not used in the plan)',
       quirk: 'Counts taken across six different days',
     },
     {

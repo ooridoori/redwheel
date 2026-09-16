@@ -38,7 +38,7 @@ export default function DataPage() {
         </p>
 
         <SourceData sources={inputs.sources} history={inputs.history} />
-        <OpeningPosition plan={plan} />
+        <OpeningPosition plan={plan} dealerStock={inputs.dealerStock} />
         <CapacityChart plan={plan} />
         <Assumptions notes={inputs.notes} />
       </div>

@@ -24,7 +24,7 @@ import { InsightPanel, InsightSkeleton, KpiRow, KpiRowSkeleton } from '@/compone
 import { ChartSkeleton, WosChart } from '@/components/charts/wos-chart'
 import { PlanTable, PlanTableSkeleton, PlanTableSummary, PlanTableSummarySkeleton } from '@/components/plan-table/plan-table'
 import { DerivationDrawer } from '@/components/plan-table/derivation-drawer'
-import { buildTableRows, type TableRow } from '@/components/plan-table/rows'
+import { buildTableRows, resolveSelection, type SelectionId } from '@/components/plan-table/rows'
 
 export function Planner({ inputs }: { inputs: PlanningInputs }) {
   const [appliedPolicy, setAppliedPolicy] = useState<Policy>(DEFAULT_POLICY)
@@ -34,7 +34,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
 
   const [scope, setScope] = useState<Scope>('all')
   const [rangeWeeks, setRangeWeeks] = useState(26)
-  const [selected, setSelected] = useState<TableRow | null>(null)
+  const [selection, setSelection] = useState<SelectionId | null>(null)
   const [previousPlan, setPreviousPlan] = useState<BuildPlan | null>(null)
 
   const plan = useMemo(() => runAllocation(inputs, appliedPolicy), [inputs, appliedPolicy])
@@ -55,7 +55,6 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
   const run = () => {
     if (isRunning) return
     setIsRunning(true)
-    setSelected(null)
     const previous = plan
     const nextPolicy = draftPolicy
     requestAnimationFrame(() => {
@@ -80,6 +79,11 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
     () => buildTableRows(plan, scope, visibleWeeks),
     [plan, scope, visibleWeeks],
   )
+  const selected = resolveSelection(selection, tableRows)
+
+  useEffect(() => {
+    if (selection && !selected) setSelection(null)
+  }, [selection, selected])
 
   return (
     <div className="flex min-h-dvh flex-col bg-canvas lg:h-dvh lg:overflow-hidden">
@@ -94,10 +98,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <ProductGroupFilter
             scope={scope}
-            onChange={(next) => {
-              setScope(next)
-              setSelected(null)
-            }}
+            onChange={setScope}
           />
           <DateRangeFilter
             weeks={visibleWeeks}
@@ -175,17 +176,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   plan={plan}
                   scope={scope}
                   visibleWeeks={visibleWeeks}
-                  onViewSku={(action) => {
-                    const row =
-                      tableRows.find(
-                        (candidate) =>
-                          candidate.sku === action.sku && candidate.weekStart === action.weekStart,
-                      ) ??
-                      buildTableRows(plan, scope, [action.weekStart]).find(
-                        (candidate) => candidate.sku === action.sku,
-                      )
-                    if (row) setSelected(row)
-                  }}
+                  onViewSku={(action) => setSelection({ sku: action.sku, weekStart: action.weekStart })}
                 />
               )}
             </section>
@@ -205,9 +196,8 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                 <PlanTable
                   rows={tableRows}
                   selectedKey={selected?.key ?? null}
-                  onSelect={setSelected}
+                  onSelect={(row) => setSelection({ sku: row.sku, weekStart: row.weekStart })}
                   diff={diff}
-                  dealerStock={appliedPolicy.dealerStock}
                 />
               )}
             </div>
@@ -221,7 +211,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
               type="button"
               aria-label="Close explanation"
               className="fixed inset-0 z-40 bg-canvas/60 lg:hidden"
-              onClick={() => setSelected(null)}
+              onClick={() => setSelection(null)}
             />
             <DerivationDrawer
               row={selected}
@@ -230,27 +220,8 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   candidate.weekStart === selected.weekStart && candidate.line === selected.line,
               )}
               rule={plan.policy.rationing}
-              dealerStock={plan.policy.dealerStock}
-              onClose={() => setSelected(null)}
-              onSelectSku={(sku) => {
-                const next =
-                  tableRows.find(
-                    (candidate) => candidate.weekStart === selected.weekStart && candidate.sku === sku,
-                  ) ??
-                  (() => {
-                    const planRow = plan.rows.find(
-                      (candidate) =>
-                        candidate.weekStart === selected.weekStart && candidate.sku === sku,
-                    )
-                    if (!planRow) return null
-                    return (
-                      buildTableRows(plan, planRow.line, [planRow.weekStart]).find(
-                        (candidate) => candidate.sku === sku,
-                      ) ?? null
-                    )
-                  })()
-                if (next) setSelected(next)
-              }}
+              onClose={() => setSelection(null)}
+              onSelectSku={(sku) => setSelection({ sku, weekStart: selected.weekStart })}
             />
           </>
         )}

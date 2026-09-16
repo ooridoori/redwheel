@@ -17,8 +17,6 @@ export interface TableRow {
   line: LineId
   lineLabel: string
   forecast: number
-  grossForecast: number
-  absorbedByDealers: number
   startingInventory: number
   startingBacklog: number
   targetWeeks: number
@@ -33,6 +31,12 @@ export interface TableRow {
   atTarget: boolean
   rationed: boolean
   detail: { row: PlanRow; lineWeek: LineWeek }
+}
+
+/** Stable pointer at one SKU-week. Never store a copied row — look this up on the latest plan. */
+export interface SelectionId {
+  sku: string
+  weekStart: string
 }
 
 export function buildTableRows(
@@ -55,8 +59,6 @@ export function buildTableRows(
         line: row.line,
         lineLabel: LINE_LABELS[row.line],
         forecast: row.forecast,
-        grossForecast: row.grossForecast,
-        absorbedByDealers: row.absorbedByDealers,
         startingInventory: row.startingInventory,
         startingBacklog: row.startingBacklog,
         targetWeeks: row.targetWeeks,
@@ -71,4 +73,10 @@ export function buildTableRows(
         detail: { row, lineWeek },
       }
     })
+}
+
+/** Latest table row for a stored SKU-week, or null if it is outside the current range/scope. */
+export function resolveSelection(selection: SelectionId | null, rows: TableRow[]): TableRow | null {
+  if (!selection) return null
+  return rows.find((row) => row.sku === selection.sku && row.weekStart === selection.weekStart) ?? null
 }

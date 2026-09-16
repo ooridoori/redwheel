@@ -20,10 +20,6 @@ import {
   scenarioSummary,
   type RationingRule,
 } from './policy'
-import {
-  DEALER_TREATMENT_DESCRIPTIONS,
-  type DealerStockTreatment,
-} from './dealer-buffer'
 
 const inputs = loadPlanningInputs()
 const plan = runAllocation(inputs)
@@ -39,46 +35,48 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
     expect(row.startingInventory).toBe(250)
     expect(row.startingBacklog).toBe(189)
     expect(row.startingNet).toBe(61)
-    expect(row.forecast).toBe(16)
-    expect(row.grossForecast).toBe(29)
+    expect(row.forecast).toBe(29)
     expect(row.targetWeeks).toBe(8)
-    expect(row.targetInventory).toBe(128)
-    expect(row.desiredBuild).toBe(83)
+    expect(row.targetInventory).toBe(232)
+    expect(row.desiredBuild).toBe(200)
     expect(row.build).toBe(0)
-    expect(row.endingInventory).toBe(45)
-    expect(row.startingCoverage).toBeCloseTo(3.81, 2)
-    expect(row.endingCoverage).toBeCloseTo(2.81, 2)
-    expect(sibling.startingCoverage).toBeCloseTo(0.32, 2)
+    expect(row.endingInventory).toBe(32)
+    expect(row.startingCoverage).toBeCloseTo(2.1, 2)
+    expect(row.endingCoverage).toBeCloseTo(1.1, 2)
+    expect(sibling.startingCoverage).toBeCloseTo(0.18, 2)
     expect(lineWeek.capacity).toBe(150)
-    expect(lineWeek.desiredBuild).toBe(326)
-    expect(lineWeek.unmet).toBe(176)
+    expect(lineWeek.desiredBuild).toBe(638)
+    expect(lineWeek.unmet).toBe(488)
   })
 
   it('labels the required-build expansion from those same fields', () => {
     const byLabel = Object.fromEntries(derivation.need.map((term) => [term.label, term.value]))
-    expect(byLabel['Target inventory']).toBe(128)
+    expect(byLabel['Target inventory']).toBe(232)
     expect(byLabel.Backlog).toBe(189)
-    expect(byLabel['Current plant demand']).toBe(16)
+    expect(byLabel['Current plant demand']).toBe(29)
     expect(byLabel['Starting inventory']).toBe(250)
-    expect(byLabel['Required build']).toBe(83)
+    expect(byLabel['Required build']).toBe(200)
     expect(byLabel['Current plant demand']).toBe(row.forecast)
+    expect(derivation.need.find((term) => term.label === 'Current plant demand')?.note).toMatch(
+      /Dealer-held inventory is not subtracted/,
+    )
   })
 
   it('labels the line constraint from the line-week, not a SKU-local guess', () => {
     const byLabel = Object.fromEntries(derivation.capacity.map((term) => [term.label, term.value]))
-    expect(byLabel['This SKU needs']).toBe(83)
-    expect(byLabel['Other SKU need']).toBe(243)
+    expect(byLabel['This SKU needs']).toBe(200)
+    expect(byLabel['Other SKU need']).toBe(438)
     expect(byLabel['Line capacity']).toBe(150)
-    expect(byLabel['Unmet need']).toBe(176)
+    expect(byLabel['Unmet need']).toBe(488)
   })
 
   it('marks the miss as a capacity short, not an engine error', () => {
     const status = skuStatus(row)
     expect(status.met).toBe(false)
     expect(status.shorted).toBe(true)
-    expect(status.label).toBe('5.2 weeks below target')
+    expect(status.label).toBe('6.9 weeks below target')
     expect(status.detail).toBe('Short due to line capacity')
-    expect(weeksPhrase(row.endingCoverage)).toBe('2.81 weeks')
+    expect(weeksPhrase(row.endingCoverage)).toBe('1.10 weeks')
   })
 
   it('names RW-9835 as the SKU that received capacity', () => {
@@ -108,26 +106,26 @@ describe('RW-9324 week of 2026-09-07 — already above target', () => {
     expect(surplus.build).toBe(0)
     expect(surplus.startingInventory).toBe(1900)
     expect(surplus.startingBacklog).toBe(0)
-    expect(surplus.forecast).toBe(6)
-    expect(surplus.targetInventory).toBe(72)
+    expect(surplus.forecast).toBe(11)
+    expect(surplus.targetInventory).toBe(132)
     expect(surplus.targetWeeks).toBe(12)
-    expect(surplus.endingInventory).toBe(1894)
-    expect(surplus.startingCoverage).toBeCloseTo(130.46, 2)
-    expect(surplus.endingCoverage).toBeCloseTo(129.46, 2)
-    expect(surplus.shipped).toBe(6)
-    expect(siblingLarge.startingCoverage).toBeCloseTo(-9.28, 2)
-    expect(siblingLarge.desiredBuild).toBe(1155)
+    expect(surplus.endingInventory).toBe(1889)
+    expect(surplus.startingCoverage).toBeCloseTo(100.77, 2)
+    expect(surplus.endingCoverage).toBeCloseTo(99.77, 2)
+    expect(surplus.shipped).toBe(11)
+    expect(siblingLarge.startingCoverage).toBeCloseTo(-9.17, 2)
+    expect(siblingLarge.desiredBuild).toBe(1305)
     expect(siblingLarge.build).toBe(130)
     expect(mtbLine.capacity).toBe(130)
-    expect(mtbLine.unmet).toBe(1025)
+    expect(mtbLine.unmet).toBe(1175)
   })
 
   it('labels other-SKU need rather than implying this SKU asked for 1,155', () => {
     const byLabel = Object.fromEntries(mtbDerivation.capacity.map((term) => [term.label, term.value]))
     expect(byLabel['This SKU needs']).toBe(0)
-    expect(byLabel['Other SKU need']).toBe(1155)
+    expect(byLabel['Other SKU need']).toBe(1305)
     expect(byLabel['Line capacity']).toBe(130)
-    expect(byLabel['Unmet need']).toBe(1025)
+    expect(byLabel['Unmet need']).toBe(1175)
   })
 
   it('does not treat a zero-need SKU as having lost a competition', () => {
@@ -136,19 +134,19 @@ describe('RW-9324 week of 2026-09-07 — already above target', () => {
     expect(skuStatus(surplus).detail).toBeNull()
     expect(coverGloss(surplus.startingCoverage, surplus.targetWeeks)).toContain('well above')
     const siblingPeer = mtbDerivation.peers.find((peer) => peer.sku === 'RW-9901')!
-    expect(siblingPeer.desiredBuild).toBe(1155)
+    expect(siblingPeer.desiredBuild).toBe(1305)
     expect(siblingPeer.build).toBe(130)
   })
 })
 
 describe('horizon KPIs distinguish line cover from SKU-weeks', () => {
-  it('counts 4/4 lines at target and 296 SKU-week misses due to capacity', () => {
+  it('counts 4/4 lines at target and 334 SKU-week misses due to capacity', () => {
     const kpis = scopeKpis(plan, 'all')
     expect(kpis.linesAtTarget).toBe(4)
     expect(kpis.linesInScope).toBe(4)
     expect(kpis.skuWeeks).toBe(1210)
-    expect(kpis.skuWeeksAtTarget).toBe(914)
-    expect(kpis.skuWeeksMissedToCapacity).toBe(296)
+    expect(kpis.skuWeeksAtTarget).toBe(876)
+    expect(kpis.skuWeeksMissedToCapacity).toBe(334)
   })
 
   it('scopes SKU-week attainment to the selected weeks without changing horizon line status', () => {
@@ -161,12 +159,9 @@ describe('horizon KPIs distinguish line cover from SKU-weeks', () => {
 
 describe('scenario copy follows the selected policy', () => {
   const rules: RationingRule[] = ['worst-first', 'proportional', 'backlog-first']
-  const treatments: DealerStockTreatment[] = ['channel-segregated', 'exclude', 'central']
 
   it('summarises the default brief scenario', () => {
-    expect(scenarioSummary(DEFAULT_POLICY)).toBe(
-      'Worst-off first · Dealer stock serves dealer demand · Brief cover targets',
-    )
+    expect(scenarioSummary(DEFAULT_POLICY)).toBe('Worst-off first · Brief cover targets')
   })
 
   it('labels edited cover targets as custom without changing other defaults', () => {
@@ -192,26 +187,17 @@ describe('scenario copy follows the selected policy', () => {
     }
   })
 
-  it('describes exclude as ignoring supply, not dropping dealer-channel demand', () => {
-    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).toMatch(/ignored as supply/)
-    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).toMatch(/still reaches the plant/)
-    expect(DEALER_TREATMENT_DESCRIPTIONS.exclude).not.toMatch(/excluded from both/)
+  it.each(rules)('What to watch stays policy-neutral for %s', (rationing) => {
+    const next = runAllocation(inputs, { ...DEFAULT_POLICY, rationing })
+    const watch = insightsFor(next, 'all')
+    expect(watch[0]?.category).toBe('Plan health')
+    expect(watch.map((item) => item.category)).toContain('SKU mix risk')
+    expect(watch.map((item) => item.category)).toContain('Capacity pressure')
+    const body = watch.map((item) => item.body).join(' ')
+    expect(body).not.toMatch(/furthest below/)
+    expect(body).not.toMatch(/Worst-off first/)
+    expect(body).not.toMatch(/Mountain — Carbon looks on track/)
   })
-
-  it.each(rules.flatMap((rationing) => treatments.map((dealerStock) => ({ rationing, dealerStock }))))(
-    'What to watch stays policy-neutral for $rationing / $dealerStock',
-    ({ rationing, dealerStock }) => {
-      const next = runAllocation(inputs, { ...DEFAULT_POLICY, rationing, dealerStock })
-      const watch = insightsFor(next, 'all')
-      expect(watch[0]?.category).toBe('Plan health')
-      expect(watch.map((item) => item.category)).toContain('SKU mix risk')
-      expect(watch.map((item) => item.category)).toContain('Capacity pressure')
-      const body = watch.map((item) => item.body).join(' ')
-      expect(body).not.toMatch(/furthest below/)
-      expect(body).not.toMatch(/Worst-off first/)
-      expect(body).not.toMatch(/Mountain — Carbon looks on track/)
-    },
-  )
 })
 
 describe('line-level cover chart reads engine line weeks', () => {
@@ -223,7 +209,7 @@ describe('line-level cover chart reads engine line weeks', () => {
     const carbon = events.find((event) => event.line === 'mtb-carbon')!
     expect(carbon.week).toBe(plan.kpis.lines.find((line) => line.line === 'mtb-carbon')!.firstWeekAtTarget)
     expect(carbon.targetWeeks).toBe(15)
-    expect(recoveryCaption(carbon)).toBe('Mountain — Carbon reaches 15w target · Aug 2027')
+    expect(recoveryCaption(carbon)).toBe('Mountain — Carbon reaches 15w target · Sep 2027')
   })
 
   it('caps the axis when Mountain — Base would stretch the target zone', () => {
