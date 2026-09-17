@@ -3,9 +3,9 @@
 /**
  * Aggregate line cover: how does each production line's combined inventory move?
  *
- * Plots engine `lineWeeks` only. SKU shortages are a different grain — the
- * title, subtitle and caption say so, because a line at target can still hide
- * a size that is not.
+ * This is a diagnostic, not the planning objective. SKU shortages are a
+ * different grain — a line at its aggregate reference can still hide a size
+ * that is not at target.
  */
 import {
   CartesianGrid,

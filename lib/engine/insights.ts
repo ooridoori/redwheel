@@ -1,9 +1,9 @@
 /**
  * Decision-support readings of the plan on screen.
  *
- * Chart shows line-level trajectory. This panel says what that trajectory can
- * hide, and which SKU to look at. Every figure comes from engine line-weeks
- * and plan rows — nothing here recomputes cover.
+ * The chart shows aggregate line trajectory as context. This panel says which
+ * SKU exceptions that trajectory can hide. Every figure comes from engine
+ * line-weeks and plan rows — nothing here recomputes cover.
  */
 import { LINE_LABELS, type LineId } from '../domain'
 import { units, weekLabelLong, weeks as formatWeeks } from '../format'
