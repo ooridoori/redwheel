@@ -20,15 +20,11 @@ Backlog is an outstanding obligation that rolls forward until production clears 
 For each SKU every week, the engine computes how much ideally needs to be built for the SKU to hit its target cover while satisfying immediate obligations:
 
 ```text
-Target inventory = forecast demand × weeks of supply
-Required build = target inventory + oustanding backlog - starting available inventory
+Required build = target inventory + obligations - starting available inventory
 ```
 
-The engine then evaluates the combined required build across all SKUs on the production line:
-- If total required build is less than or equal to that week's line capacity, build what each SKU needs.
-- If total required build exceeds line capacity, the line is constrained and the allocation policy determines how the limited capacity is distributed.
-
-Ending inventory and unresolved backlog roll forward into the next week, so each week's allocation decisions affect later weeks in the planning horizon.
+- If the required build is less than or equal to weekly capacity, build what each SKU needs.
+- If not, the line is constrained, so the allocation policy determines which SKU receives the scarce capacity first.
 
 ## Allocation policy assumptions
 
@@ -38,3 +34,4 @@ Ending inventory and unresolved backlog roll forward into the next week, so each
   - **Example:** If SKU A needs 300 units and SKU B needs 100 units, the total required build is 400 units. If the line only has 200 units of capacity:
     - SKU A represents 75% of total need and receives 150 units.
     - SKU B represents 25% of total need and receives 50 units.
+
