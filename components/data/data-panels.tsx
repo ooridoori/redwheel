@@ -189,8 +189,10 @@ export function SourceData({ sources, history }: { sources: SourceSummary[]; his
                 axisLine={false}
               />
               <Tooltip
-                content={({ active, payload, label }) =>
-                  active && payload?.length ? (
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null
+                  const total = payload.reduce((sum, item) => sum + Number(item.value ?? 0), 0)
+                  return (
                     <div className="rounded-lg border border-edge-strong bg-raised px-2.5 py-2 text-[11.5px] shadow-xl">
                       <div className="mb-1 text-ink-faint tnum">{String(label)}</div>
                       {payload.map((item) => (
@@ -203,9 +205,13 @@ export function SourceData({ sources, history }: { sources: SourceSummary[]; his
                           <span className="ml-auto tnum text-ink">{units(Number(item.value))}</span>
                         </div>
                       ))}
+                      <div className="mt-1.5 flex items-center gap-2 border-t border-edge pt-1.5">
+                        <span className="text-ink-muted">Total</span>
+                        <span className="ml-auto tnum text-ink">{units(total)}</span>
+                      </div>
                     </div>
-                  ) : null
-                }
+                  )
+                }}
               />
               {CHANNELS.map((channel) => (
                 <Bar

@@ -7,8 +7,8 @@
  * input), what the SKU asked for, what the line allocated, then projected cover
  * after that allocation. Clicking a row opens the derivation.
  *
- * Weeks collapse so a long horizon stays scannable: the selected week stays
- * open; others start closed and expand from a chevron on the week label.
+ * Weeks collapse so a long horizon stays scannable. Selecting a SKU opens its
+ * week; that week can still be collapsed while the drawer stays open.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode, Fragment } from 'react'
 import { percent, units, weekLabel, weeks, yearOf } from '@/lib/format'
@@ -81,7 +81,7 @@ export function PlanTable({
 }: {
   rows: TableRow[]
   selectedKey: string | null
-  onSelect: (row: TableRow) => void
+  onSelect: (row: TableRow | null) => void
   /** Increment to reveal the selection again even when its key has not changed. */
   revealRequest?: number
   /** Which builds and cover figures the last run moved. */
@@ -96,8 +96,12 @@ export function PlanTable({
   const selectedRowRef = useRef<HTMLTableRowElement | null>(null)
 
   useEffect(() => {
+    if (selectedKey) {
+      const weekStart = rows.find((row) => row.key === selectedKey)?.weekStart
+      if (weekStart) setWeekOpen((previous) => ({ ...previous, [weekStart]: true }))
+    }
     selectedRowRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' })
-  }, [selectedKey, revealRequest])
+  }, [selectedKey, revealRequest, rows])
 
   if (rows.length === 0) {
     return (
@@ -108,7 +112,6 @@ export function PlanTable({
   }
 
   function isWeekOpen(weekStart: string): boolean {
-    if (selectedKey && weekStart === focusWeek) return true
     if (weekStart in weekOpen) return weekOpen[weekStart]
     return weekStart === focusWeek
   }
@@ -220,6 +223,10 @@ export function PlanTable({
                     key={row.key}
                     ref={isSelected ? selectedRowRef : undefined}
                     onClick={() => {
+                      if (isSelected) {
+                        onSelect(null)
+                        return
+                      }
                       setWeekOpen((previous) => ({ ...previous, [row.weekStart]: true }))
                       onSelect(row)
                     }}
@@ -369,7 +376,7 @@ function WeekToggle({
         onToggle()
       }}
       aria-expanded={open}
-      className="inline-flex items-center gap-1 text-left text-ink transition-colors hover:text-ink"
+      className="inline-flex w-full cursor-pointer items-center gap-1 py-0.5 text-left text-ink transition-colors hover:text-ink"
     >
       {open ? (
         <ChevronDownIcon className="shrink-0 text-ink-faint" />
@@ -399,15 +406,15 @@ function WeekSummaryRow({
 
   return (
     <tr
-      onClick={open ? undefined : onToggle}
-      className={cx(!open && 'cursor-pointer transition-colors hover:bg-hover')}
+      onClick={onToggle}
+      className="cursor-pointer select-none transition-colors hover:bg-hover"
     >
       <Cell weekGroup>
         <WeekToggle weekStart={weekStart} open={open} onToggle={onToggle} />
       </Cell>
       <td
         colSpan={COLUMN_COUNT}
-        className="border-t border-edge-strong px-3 py-[6px] text-[11.5px] text-ink-faint"
+        className="cursor-pointer border-t border-edge-strong px-3 py-[6px] text-[11.5px] text-ink-faint"
       >
         <span>{summary.primary}</span>
         {summary.secondary && (
@@ -441,7 +448,7 @@ function Cell({
         'whitespace-nowrap',
         tight ? 'px-2 py-[5px]' : 'px-3 py-[5px]',
         align === 'right' ? 'text-right' : 'text-left',
-        weekGroup ? 'border-t border-edge-strong' : 'border-t border-edge/50',
+        weekGroup ? 'cursor-pointer border-t border-edge-strong' : 'border-t border-edge/50',
         hideOnMobile && 'hidden sm:table-cell',
       )}
     >

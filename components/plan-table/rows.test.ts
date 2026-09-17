@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadPlanningInputs } from '../../lib/load-inputs'
@@ -193,5 +193,41 @@ describe('selected table row visibility', () => {
     )
 
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' })
+  })
+
+  it('collapses the selected week while the explanation stays open', () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn()
+    const row = rows26[0]
+    const view = render(
+      createElement(PlanTable, {
+        rows: rows26,
+        selectedKey: row.key,
+        onSelect: () => undefined,
+      }),
+    )
+
+    expect(view.getByRole('row', { selected: true })).toBeTruthy()
+
+    fireEvent.click(view.getByRole('button', { expanded: true }))
+
+    expect(view.queryByRole('row', { selected: true })).toBeNull()
+    expect(view.queryByRole('button', { expanded: true })).toBeNull()
+  })
+
+  it('closes the explanation when the open row is clicked again', () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn()
+    const onSelect = vi.fn()
+    const row = rows26[0]
+    const view = render(
+      createElement(PlanTable, {
+        rows: rows26,
+        selectedKey: row.key,
+        onSelect,
+      }),
+    )
+
+    fireEvent.click(view.getByRole('row', { selected: true }))
+
+    expect(onSelect).toHaveBeenCalledWith(null)
   })
 })

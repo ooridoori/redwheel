@@ -204,7 +204,9 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   rows={tableRows}
                   selectedKey={selected?.key ?? null}
                   revealRequest={revealSelectionRequest}
-                  onSelect={(row) => setSelection({ sku: row.sku, weekStart: row.weekStart })}
+                  onSelect={(row) =>
+                    setSelection(row ? { sku: row.sku, weekStart: row.weekStart } : null)
+                  }
                   diff={diff}
                 />
               )}
