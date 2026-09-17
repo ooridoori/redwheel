@@ -8,6 +8,8 @@
 import type { LineId, Product } from '@/lib/domain'
 import { LINE_LABELS } from '@/lib/domain'
 import type { BuildPlan, LineWeek, PlanRow } from '@/lib/engine'
+import { prioritizedSku } from '@/lib/engine/derivation'
+import { PRIORITY_BADGE_TIPS } from '@/lib/engine/policy'
 
 export interface TableRow {
   key: string
@@ -19,6 +21,7 @@ export interface TableRow {
   forecast: number
   startingInventory: number
   startingBacklog: number
+  startingCoverage: number
   targetWeeks: number
   desiredBuild: number
   build: number
@@ -30,6 +33,11 @@ export interface TableRow {
   endingCoverage: number
   atTarget: boolean
   rationed: boolean
+  /** True when the active rationing rule would serve this SKU first on a constrained line-week. */
+  prioritized: boolean
+  /** Ranking input that earned the Prioritized badge. Null when the row is not prioritized. */
+  priorityBy: 'starting-cover' | 'backlog' | null
+  priorityTip: string | null
   detail: { row: PlanRow; lineWeek: LineWeek }
 }
 
@@ -46,11 +54,24 @@ export function buildTableRows(
 ): TableRow[] {
   const weeks = new Set(weekWindow)
   const lineWeekOf = new Map(plan.lineWeeks.map((entry) => [`${entry.weekStart}|${entry.line}`, entry]))
+  const rule = plan.policy.rationing
+  const peers = new Map<string, PlanRow[]>()
+  for (const row of plan.rows) {
+    if (!weeks.has(row.weekStart)) continue
+    const key = `${row.weekStart}|${row.line}`
+    const group = peers.get(key)
+    if (group) group.push(row)
+    else peers.set(key, [row])
+  }
 
   return plan.rows
     .filter((row) => weeks.has(row.weekStart) && (scope === 'all' || row.line === scope))
     .map((row) => {
       const lineWeek = lineWeekOf.get(`${row.weekStart}|${row.line}`)!
+      const rationed = lineWeek.desiredBuild > lineWeek.capacity
+      const winner = rationed ? prioritizedSku(peers.get(`${row.weekStart}|${row.line}`) ?? [], rule) : null
+      const prioritized = winner === row.sku
+      const priorityBy = prioritized ? (rule === 'backlog-first' ? 'backlog' : rule === 'worst-first' ? 'starting-cover' : null) : null
       return {
         key: `${row.weekStart}|${row.sku}`,
         weekStart: row.weekStart,
@@ -61,6 +82,7 @@ export function buildTableRows(
         forecast: row.forecast,
         startingInventory: row.startingInventory,
         startingBacklog: row.startingBacklog,
+        startingCoverage: row.startingCoverage,
         targetWeeks: row.targetWeeks,
         desiredBuild: row.desiredBuild,
         build: row.build,
@@ -69,7 +91,10 @@ export function buildTableRows(
         endingInventory: row.endingInventory,
         endingCoverage: row.endingCoverage,
         atTarget: row.endingCoverage >= row.targetWeeks,
-        rationed: lineWeek.desiredBuild > lineWeek.capacity,
+        rationed,
+        prioritized,
+        priorityBy,
+        priorityTip: prioritized ? PRIORITY_BADGE_TIPS[rule] : null,
         detail: { row, lineWeek },
       }
     })

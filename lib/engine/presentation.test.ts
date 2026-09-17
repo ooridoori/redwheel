@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { loadPlanningInputs } from '../load-inputs'
 import { runAllocation } from './index'
-import { derivationOf } from './derivation'
-import { coverGloss, skuStatus, weekTargetSummary } from './status'
-import { weeksPhrase } from '../format'
+import { derivationOf, backlogFirstWinnerSku } from './derivation'
+import { coverGloss, projectedCoverCopy, skuStatus, weekTargetSummary } from './status'
+import { percent, weeksPhrase } from '../format'
 import { scopeKpis } from './scope'
 import { insightsFor } from './insights'
 import {
@@ -67,8 +67,13 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
     const byLabel = Object.fromEntries(derivation.capacity.map((term) => [term.label, term.value]))
     expect(byLabel['This SKU needs']).toBe(200)
     expect(byLabel['Other SKU need']).toBe(438)
-    expect(byLabel['Line capacity']).toBe(150)
+    expect(byLabel['Total required build']).toBe(638)
+    expect(byLabel['Available line capacity']).toBe(150)
     expect(byLabel['Unmet need']).toBe(488)
+    expect(derivation.lineNeed.thisNeed + derivation.lineNeed.otherNeed).toBe(derivation.lineNeed.totalRequired)
+    expect(derivation.lineNeed.totalRequired).toBe(lineWeek.desiredBuild)
+    expect(derivation.lineNeed.unmet).toBe(lineWeek.unmet)
+    expect(derivation.lineNeed.coverage).toBeCloseTo(150 / 638)
   })
 
   it('marks the miss as a capacity short, not an engine error', () => {
@@ -78,6 +83,18 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
     expect(status.label).toBe('6.9 weeks below target')
     expect(status.detail).toBe('Short due to line capacity')
     expect(weeksPhrase(row.endingCoverage)).toBe('1.10 weeks')
+    expect(projectedCoverCopy(row)).toEqual({
+      primary: '1.1w projected',
+      secondary: '6.9w below 8w target',
+    })
+  })
+
+  it('keeps a post-allocation gap secondary so it cannot be read as the ranking input', () => {
+    const later = plan.rows.find((entry) => entry.sku === 'RW-4418' && entry.weekStart === '2026-09-14')!
+    const copy = projectedCoverCopy(later)
+    expect(copy.primary).toMatch(/projected$/)
+    expect(copy.primary).not.toMatch(/below/)
+    expect(copy.secondary).toMatch(/below \d+w target/)
   })
 
   it('names RW-9835 as the SKU that received capacity', () => {
@@ -85,6 +102,28 @@ describe('RW-7298 week of 2026-09-07 — UI reads engine fields', () => {
     expect(winner.sku).toBe('RW-9835')
     expect(winner.build).toBe(150)
     expect(derivation.peers.find((peer) => peer.sku === 'RW-7298')?.prioritized).toBe(false)
+    expect(winner.startingCoverage).toBeLessThan(
+      derivation.peers.find((peer) => peer.sku === 'RW-7298')!.startingCoverage,
+    )
+    expect(winner.endingCoverage).toBeDefined()
+  })
+
+  it('names the largest-backlog SKU under owed-customers-first from engine backlog, not cover', () => {
+    const next = runAllocation(inputs, { ...DEFAULT_POLICY, rationing: 'backlog-first' })
+    const mtbRows = next.rows.filter((entry) => entry.weekStart === week && entry.line === 'mtb-base')
+    const mtbLine = next.lineWeeks.find((entry) => entry.weekStart === week && entry.line === 'mtb-base')!
+    const owed = mtbRows.find((entry) => entry.sku === 'RW-9901')!
+    const surplus = mtbRows.find((entry) => entry.sku === 'RW-9324')!
+    const explained = derivationOf(owed, mtbLine, mtbRows, 'backlog-first')
+    const winner = explained.peers.find((peer) => peer.prioritized)!
+
+    expect(backlogFirstWinnerSku(mtbRows)).toBe('RW-9901')
+    expect(winner.sku).toBe('RW-9901')
+    expect(winner.startingBacklog).toBe(owed.startingBacklog)
+    expect(winner.startingBacklog).toBeGreaterThan(surplus.startingBacklog)
+    expect(winner.endingBacklog).toBe(owed.endingBacklog)
+    expect(winner.build).toBe(owed.build)
+    expect(explained.peers.find((peer) => peer.sku === 'RW-9324')?.prioritized).toBe(false)
   })
 
   it('summarises the week from atTarget / shorted flags already on the rows', () => {
@@ -125,7 +164,8 @@ describe('RW-9324 week of 2026-09-07 — already above target', () => {
     const byLabel = Object.fromEntries(mtbDerivation.capacity.map((term) => [term.label, term.value]))
     expect(byLabel['This SKU needs']).toBe(0)
     expect(byLabel['Other SKU need']).toBe(1305)
-    expect(byLabel['Line capacity']).toBe(130)
+    expect(byLabel['Total required build']).toBe(1305)
+    expect(byLabel['Available line capacity']).toBe(130)
     expect(byLabel['Unmet need']).toBe(1175)
   })
 
@@ -137,6 +177,37 @@ describe('RW-9324 week of 2026-09-07 — already above target', () => {
     const siblingPeer = mtbDerivation.peers.find((peer) => peer.sku === 'RW-9901')!
     expect(siblingPeer.desiredBuild).toBe(1305)
     expect(siblingPeer.build).toBe(130)
+  })
+})
+
+describe('line-need math exposes the total-required denominator', () => {
+  it('adds this SKU and other SKUs to the line-week required build', () => {
+    const carbonWeek = plan.lineWeeks.find((entry) => entry.weekStart === week && entry.line === 'mtb-carbon')!
+    const small = plan.rows.find((entry) => entry.sku === 'RW-9304' && entry.weekStart === week)!
+    const carbonRows = plan.rows.filter((entry) => entry.weekStart === week && entry.line === 'mtb-carbon')
+    const carbon = derivationOf(small, carbonWeek, carbonRows)
+
+    expect(carbon.lineNeed.thisNeed).toBe(small.desiredBuild)
+    expect(carbon.lineNeed.thisNeed + carbon.lineNeed.otherNeed).toBe(carbon.lineNeed.totalRequired)
+    expect(carbon.lineNeed.totalRequired).toBe(carbonWeek.desiredBuild)
+    expect(carbon.lineNeed.capacity).toBe(carbonWeek.capacity)
+    expect(carbon.lineNeed.unmet).toBe(carbonWeek.unmet)
+    expect(carbon.lineNeed.unmet).toBe(carbon.lineNeed.totalRequired - carbon.lineNeed.capacity)
+    expect(carbon.lineNeed.coverage).toBeCloseTo(carbonWeek.capacity / carbonWeek.desiredBuild)
+    expect(percent(carbon.lineNeed.coverage, 2)).toBe(
+      percent(carbonWeek.capacity / carbonWeek.desiredBuild, 2),
+    )
+    expect(carbon.lineNeed.totalRequired).toBe(carbonRows.reduce((sum, row) => sum + row.desiredBuild, 0))
+  })
+
+  it('keeps proportional whole-unit shares summing to line capacity', () => {
+    const next = runAllocation(inputs, { ...DEFAULT_POLICY, rationing: 'proportional' })
+    const carbonWeek = next.lineWeeks.find((entry) => entry.weekStart === week && entry.line === 'mtb-carbon')!
+    const carbonRows = next.rows.filter((entry) => entry.weekStart === week && entry.line === 'mtb-carbon')
+    const needing = carbonRows.filter((row) => row.desiredBuild > 0)
+
+    expect(needing.reduce((sum, row) => sum + row.build, 0)).toBe(carbonWeek.capacity)
+    expect(carbonWeek.build).toBe(carbonWeek.capacity)
   })
 })
 
@@ -182,6 +253,7 @@ describe('scenario copy follows the selected policy', () => {
       const blob = `${RATIONING_DESCRIPTIONS[rule]} ${ALLOCATION_BADGE_LABELS[rule]} ${ALLOCATION_PEER_CAPTIONS[rule]}`
       if (rule === 'worst-first') {
         expect(blob).toMatch(/furthest below/)
+        expect(blob).toMatch(/before this week's production is allocated/)
       } else {
         expect(blob).not.toMatch(/furthest below/)
       }

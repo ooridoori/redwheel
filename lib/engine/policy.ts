@@ -12,8 +12,9 @@ import type { LineId } from '../domain'
  * is. Every rule ranks and allocates at SKU level, because a line's shortage is
  * never evenly spread across its sizes.
  *
- * - `worst-first` serves whoever is furthest below target until they catch up.
- *   Fixes the sharpest shortage soonest; others wait.
+ * - `worst-first` serves whoever is furthest below target at week start, before
+ *   this week's production is allocated. Fixes the sharpest shortage soonest;
+ *   others wait.
  * - `proportional` gives everyone the same fraction of what they asked for.
  *   Nobody is starved, nobody is fixed quickly.
  * - `backlog-first` clears units already owed to customers before building any
@@ -67,21 +68,29 @@ export const RATIONING_LABELS: Record<RationingRule, string> = {
 }
 
 export const RATIONING_DESCRIPTIONS: Record<RationingRule, string> = {
-  'worst-first': 'Capacity goes first to the SKU furthest below its target cover.',
-  proportional: 'Each SKU receives the same fraction of its required build.',
-  'backlog-first': 'Capacity prioritizes existing backlog before rebuilding forward cover.',
+  'worst-first':
+    'Worst-off first allocates available capacity to the SKU furthest below its target cover before this week\'s production is allocated.',
+  proportional: 'Each SKU receives the same fraction of its required build — the share of total line need that this week\'s capacity can cover.',
+  'backlog-first':
+    'Owed customers first allocates available capacity to the SKU with the largest outstanding backlog before this week\'s production is allocated.',
 }
 
 export const ALLOCATION_BADGE_LABELS: Record<RationingRule, string> = {
-  'worst-first': 'Prioritized — furthest below target',
+  'worst-first': 'Prioritized — furthest below starting cover',
   proportional: 'Allocated proportionally to required build',
-  'backlog-first': 'Prioritized to serve existing backlog',
+  'backlog-first': 'Prioritized — largest backlog',
+}
+
+export const PRIORITY_BADGE_TIPS: Record<RationingRule, string | null> = {
+  'worst-first': "Furthest below target cover before this week's production was allocated",
+  proportional: null,
+  'backlog-first': 'Largest outstanding backlog on this production line.',
 }
 
 export const ALLOCATION_PEER_CAPTIONS: Record<RationingRule, string> = {
-  'worst-first': 'furthest below target first',
-  proportional: 'split in proportion to required build',
-  'backlog-first': 'existing backlog first',
+  'worst-first': 'ranked by starting cover, furthest below target first',
+  proportional: 'split by each SKU\'s share of total required build',
+  'backlog-first': 'ranked by outstanding backlog, largest first',
 }
 
 /** True when target-cover rules still match the brief, regardless of rationing. */

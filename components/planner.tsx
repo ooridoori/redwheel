@@ -12,7 +12,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { PlanningInputs } from '@/lib/planning-inputs'
-import { runAllocation, DEFAULT_POLICY, scenarioSummary, type BuildPlan, type Policy } from '@/lib/engine'
+import { runAllocation, DEFAULT_POLICY, type BuildPlan, type Policy } from '@/lib/engine'
+import { usesBriefTargets } from '@/lib/engine/policy'
 import { diffPlans } from '@/lib/engine/diff'
 import type { Scope } from '@/lib/engine/scope'
 import { weekLabelLong } from '@/lib/format'
@@ -139,14 +140,16 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
         </div>
       </header>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge px-4 py-1.5 sm:px-5">
-        <p className="min-w-0 text-[12px] text-ink-muted">
-          <span className="text-ink-faint">Scenario:</span> {scenarioSummary(appliedPolicy)}
-        </p>
-        {isDirty && (
-          <p className="text-[12px] text-accent">Scenario changed — run allocation to update plan</p>
-        )}
-      </div>
+      {(isDirty || !usesBriefTargets(appliedPolicy)) && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge px-4 py-1.5 sm:px-5">
+          {!usesBriefTargets(appliedPolicy) && (
+            <p className="min-w-0 text-[12px] text-ink-faint">Custom cover targets</p>
+          )}
+          {isDirty && (
+            <p className="text-[12px] text-accent">Scenario changed — run allocation to update plan</p>
+          )}
+        </div>
+      )}
 
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row" aria-busy={isRunning}>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4 lg:overflow-hidden">

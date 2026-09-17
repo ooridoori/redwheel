@@ -3,9 +3,9 @@
 /**
  * The weekly build plan.
  *
- * Columns read left to right in the order the arithmetic happens: what we hold,
- * what we owe, what the target asks for, what the SKU requested, what the line
- * could give it, and where that leaves us. Clicking a row opens the derivation.
+ * Columns read left to right in decision order: starting cover (the ranking
+ * input), what the SKU asked for, what the line allocated, then projected cover
+ * after that allocation. Clicking a row opens the derivation.
  *
  * Weeks collapse so a long horizon stays scannable: the selected week stays
  * open; others start closed and expand from a chevron on the week label.
@@ -15,11 +15,17 @@ import { percent, units, weekLabel, weeks, yearOf } from '@/lib/format'
 import { NO_DIFF, type PlanDiff } from '@/lib/engine/diff'
 import { Badge, Bone, cx } from '@/components/ui/primitives'
 import { InfoTip } from '@/components/ui/info-tip'
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@/components/ui/icons'
-import { skuStatus, weekTargetSummary } from '@/lib/engine/status'
+import { ChevronDownIcon, ChevronRightIcon } from '@/components/ui/icons'
+import { projectedCoverCopy, weekTargetSummary } from '@/lib/engine/status'
 import type { TableRow } from './rows'
 
-const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string; hideOnMobile?: boolean }[] = [
+const COLUMNS: {
+  label: string
+  align: 'left' | 'right'
+  hint?: string
+  hideOnMobile?: boolean
+  tip?: boolean
+}[] = [
   { label: 'Week', align: 'left' },
   { label: 'SKU', align: 'left' },
   { label: 'Line', align: 'left', hideOnMobile: true },
@@ -36,7 +42,12 @@ const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string; hideOnMo
     hideOnMobile: true,
   },
   { label: 'Backlog', align: 'right', hint: 'Units already owed to customers', hideOnMobile: true },
-  { label: 'Target cover', align: 'right', hint: 'Required weeks of cover', hideOnMobile: true },
+  {
+    label: 'Starting cover',
+    align: 'right',
+    hint: "Cover at the beginning of the allocation decision, before this week's planned production.",
+    tip: true,
+  },
   {
     label: 'Build needed',
     align: 'right',
@@ -51,7 +62,12 @@ const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string; hideOnMo
     hideOnMobile: true,
   },
   { label: 'Ending inv', align: 'right', hint: 'Stock on hand at the end of the week', hideOnMobile: true },
-  { label: 'Ending cover', align: 'right', hint: 'Weeks of cover at week end, against target cover' },
+  {
+    label: 'Projected cover',
+    align: 'right',
+    hint: "Expected cover after this week's demand and planned production.",
+    tip: true,
+  },
 ]
 
 const COLUMN_COUNT = COLUMNS.length
@@ -149,14 +165,21 @@ export function PlanTable({
           {COLUMNS.map((column) => (
             <th
               key={column.label}
-              title={column.hint}
+              title={column.tip ? undefined : column.hint}
               className={cx(
                 'border-b border-edge bg-surface px-3 py-2 font-normal whitespace-nowrap text-ink-faint',
                 column.align === 'right' ? 'text-right' : 'text-left',
                 column.hideOnMobile && 'hidden sm:table-cell',
               )}
             >
-              {column.label}
+              {column.tip && column.hint ? (
+                <span className={cx('inline-flex items-center gap-1', column.align === 'right' && 'justify-end')}>
+                  {column.label}
+                  <InfoTip text={column.hint} />
+                </span>
+              ) : (
+                column.label
+              )}
             </th>
           ))}
           <th className="border-b border-edge bg-surface px-2 py-2 text-right font-normal text-ink-faint">
@@ -190,7 +213,7 @@ export function PlanTable({
               {group.rows.map((row) => {
                 const isSelected = row.key === selectedKey
                 const shorted = row.desiredBuild > row.build
-                const status = skuStatus(row)
+                const projected = projectedCoverCopy(row)
 
                 return (
                   <tr
@@ -211,8 +234,17 @@ export function PlanTable({
                     </Cell>
 
                     <Cell weekGroup={false}>
-                      <span className="tnum text-ink">{row.sku}</span>
-                      <span className="ml-1.5 text-[11px] text-ink-faint">{row.size}</span>
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span>
+                          <span className="tnum text-ink">{row.sku}</span>
+                          <span className="ml-1.5 text-[11px] text-ink-faint">{row.size}</span>
+                        </span>
+                        {row.prioritized && row.priorityTip && (
+                          <Badge tone="accent" title={row.priorityTip}>
+                            Prioritized
+                          </Badge>
+                        )}
+                      </span>
                     </Cell>
 
                     <Cell weekGroup={false} hideOnMobile>
@@ -228,13 +260,15 @@ export function PlanTable({
                     </Cell>
 
                     <Cell weekGroup={false} align="right" hideOnMobile>
-                      <span className={cx('tnum', row.startingBacklog > 0 ? 'text-neg' : 'text-ink-faint')}>
+                      <span className={cx('tnum', row.startingBacklog > 0 ? (row.priorityBy === 'backlog' ? 'font-medium text-accent-bright' : 'text-neg') : 'text-ink-faint')}>
                         {row.startingBacklog > 0 ? units(row.startingBacklog) : '—'}
                       </span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right" hideOnMobile>
-                      <span className="tnum text-ink-faint">{row.targetWeeks}w</span>
+                    <Cell weekGroup={false} align="right">
+                      <span className={cx('tnum', row.priorityBy === 'starting-cover' ? 'font-medium text-accent-bright' : 'text-ink-muted')}>
+                        {weeks(row.startingCoverage, 2)}
+                      </span>
                     </Cell>
 
                     <Cell weekGroup={false} align="right" hideOnMobile>
@@ -279,16 +313,10 @@ export function PlanTable({
                           diff.cover.has(row.key) && 'changed -mx-0.5 px-0.5',
                         )}
                       >
-                        <Badge
-                          tone={status.met ? 'positive' : 'warning'}
-                          title={status.detail ? `${status.label}. ${status.detail}` : status.label}
-                        >
-                          {status.met ? <CheckIcon /> : null}
-                          {status.met ? 'Target met' : status.label}
-                        </Badge>
-                        <span className="text-[10.5px] text-ink-faint tnum">
-                          {weeks(row.endingCoverage)} / {row.targetWeeks}w
-                        </span>
+                        <span className="tnum font-medium text-ink">{projected.primary}</span>
+                        {projected.secondary && (
+                          <span className="text-[10.5px] text-ink-faint tnum">{projected.secondary}</span>
+                        )}
                       </span>
                     </Cell>
 

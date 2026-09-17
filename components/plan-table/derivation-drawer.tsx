@@ -9,11 +9,12 @@
  */
 import { useState, type ReactNode } from 'react'
 import { LINE_LABELS } from '@/lib/domain'
-import { units, weekLabelLong, weeks, weeksPhrase } from '@/lib/format'
+import { percent, units, weekLabelLong, weeks, weeksPhrase } from '@/lib/format'
 import {
   derivationOf,
   peersInPolicyOrder,
   type EquationTerm,
+  type LineNeed,
   type PeerStanding,
   type TermRole,
 } from '@/lib/engine/derivation'
@@ -24,6 +25,7 @@ import {
 } from '@/lib/engine/policy'
 import type { PlanRow } from '@/lib/engine'
 import { Badge, Divider, cx } from '@/components/ui/primitives'
+import { InfoTip } from '@/components/ui/info-tip'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '@/components/ui/icons'
 import { coverGloss, skuStatus, wellAboveTarget } from '@/lib/engine/status'
 import type { TableRow } from './rows'
@@ -42,7 +44,7 @@ export function DerivationDrawer({
   onSelectSku: (sku: string) => void
 }) {
   const { row: planRow, lineWeek } = row.detail
-  const derivation = derivationOf(planRow, lineWeek, lineRows)
+  const derivation = derivationOf(planRow, lineWeek, lineRows, rule)
   const status = skuStatus(planRow)
   const needsBuild = planRow.desiredBuild > 0
   const others = derivation.peers.filter((peer) => !peer.isSelected)
@@ -50,6 +52,13 @@ export function DerivationDrawer({
   const competing = needing.length >= 2
   const startGloss = coverGloss(planRow.startingCoverage, planRow.targetWeeks)
   const endGloss = coverGloss(planRow.endingCoverage, planRow.targetWeeks)
+  const winner = derivation.peers.find((peer) => peer.prioritized)
+  const tellWorstFirstStory =
+    rule === 'worst-first' && derivation.capacityConstrained && Boolean(winner) && derivation.peers.length >= 2
+  const tellBacklogFirstStory =
+    rule === 'backlog-first' && derivation.capacityConstrained && Boolean(winner) && derivation.peers.length >= 2
+  const tellProportionalStory =
+    rule === 'proportional' && derivation.capacityConstrained && needing.length >= 1
 
   return (
     <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col overflow-y-auto border-l border-edge bg-surface shadow-2xl lg:static lg:z-auto lg:w-[400px] lg:max-w-none lg:shrink-0 lg:shadow-none">
@@ -75,7 +84,7 @@ export function DerivationDrawer({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Badge tone={status.met ? 'positive' : 'warning'}>
             {status.met ? <CheckIcon /> : null}
-            {status.label}
+            {status.met ? 'Target met' : 'Below target'}
           </Badge>
           {status.detail && <span className="text-[11.5px] text-warn">{status.detail}</span>}
           {status.met && wellAboveTarget(planRow.endingCoverage, planRow.targetWeeks) && (
@@ -84,12 +93,16 @@ export function DerivationDrawer({
         </div>
 
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
-          <Stat label="Target cover" value={weeksPhrase(planRow.targetWeeks, 1)} />
+          <Stat
+            label="Starting cover"
+            value={weeks(planRow.startingCoverage, 2)}
+            tip="Cover at the beginning of the allocation decision, before this week's planned production."
+          />
           <Stat
             label="Projected cover"
-            value={weeksPhrase(planRow.endingCoverage)}
+            value={weeks(planRow.endingCoverage)}
             tone={status.met ? 'pos' : 'warn'}
-            hint={endGloss}
+            tip="Expected cover after this week's demand and planned production."
           />
           <Stat label="Required build" value={units(planRow.desiredBuild)} />
           <Stat
@@ -131,29 +144,68 @@ export function DerivationDrawer({
             constrained={derivation.capacityConstrained}
           />
           <div className="mt-2.5 rounded-lg border border-edge bg-raised/60 px-3 py-2.5">
-            <Equation terms={derivation.capacity} compact />
+            <LineNeedMath
+              need={derivation.lineNeed}
+              showCoverage={rule === 'proportional' && derivation.capacityConstrained}
+            />
           </div>
         </section>
 
         <Divider />
 
         <section>
-          <Question n={3} title="Who gets the available capacity, and why?" />
-          <AllocationCopy
-            selected={planRow}
-            others={others}
-            needing={needing}
-            competing={competing}
-            constrained={derivation.capacityConstrained}
-            rule={rule}
-            lineCapacity={lineWeek.capacity}
-          />
-          <PeerList
-            peers={peersInPolicyOrder(derivation.peers, rule)}
-            competing={competing}
-            rule={rule}
-            onSelectSku={onSelectSku}
-          />
+          {tellWorstFirstStory && winner ? (
+            <>
+              <Question n={3} title={`Why did ${winner.sku} get capacity?`} />
+              <WorstFirstStory
+                selected={planRow}
+                winner={winner}
+                peers={derivation.peers}
+                lineCapacity={lineWeek.capacity}
+                onSelectSku={onSelectSku}
+              />
+            </>
+          ) : tellBacklogFirstStory && winner ? (
+            <>
+              <Question n={3} title={`Why did ${winner.sku} get capacity?`} />
+              <BacklogFirstStory
+                selected={planRow}
+                winner={winner}
+                peers={peersInPolicyOrder(derivation.peers, 'backlog-first')}
+                lineCapacity={lineWeek.capacity}
+                onSelectSku={onSelectSku}
+              />
+            </>
+          ) : tellProportionalStory ? (
+            <>
+              <Question n={3} title="Who gets the available capacity, and why?" />
+              <ProportionalStory
+                selected={planRow}
+                needing={needing}
+                lineNeed={derivation.lineNeed}
+                onSelectSku={onSelectSku}
+              />
+            </>
+          ) : (
+            <>
+              <Question n={3} title="Who gets the available capacity, and why?" />
+              <AllocationCopy
+                selected={planRow}
+                others={others}
+                needing={needing}
+                competing={competing}
+                constrained={derivation.capacityConstrained}
+                rule={rule}
+                lineCapacity={lineWeek.capacity}
+              />
+              <PeerList
+                peers={peersInPolicyOrder(derivation.peers, rule)}
+                competing={competing}
+                rule={rule}
+                onSelectSku={onSelectSku}
+              />
+            </>
+          )}
         </section>
 
         <Divider />
@@ -270,6 +322,347 @@ function LineContextCopy({
   )
 }
 
+function LineNeedMath({ need, showCoverage }: { need: LineNeed; showCoverage: boolean }) {
+  const otherLabel = need.otherCount === 1 ? 'Other SKU need' : 'Other SKUs need'
+  return (
+    <dl className="flex flex-col">
+      <MathRow label="This SKU needs" value={units(need.thisNeed)} role="obligation" />
+      {need.otherCount > 0 && (
+        <MathRow operator="+" label={otherLabel} value={units(need.otherNeed)} role="obligation" />
+      )}
+      <MathRow operator="=" label="Total required build" value={units(need.totalRequired)} role="result" />
+      <MathRow
+        label="Available line capacity"
+        value={units(need.capacity)}
+        role="supply"
+        spaced
+      />
+      {showCoverage && (
+        <MathRow
+          label="Capacity covers"
+          value={percent(need.coverage, 2)}
+          role="neutral"
+          emphasize
+          note="Share of total need applied to every SKU"
+        />
+      )}
+      <MathRow
+        label="Unmet need"
+        value={units(need.unmet)}
+        role="result"
+        note={need.unmet === 0 ? 'Enough for every SKU' : undefined}
+      />
+    </dl>
+  )
+}
+
+function MathRow({
+  operator = '',
+  label,
+  value,
+  role,
+  note,
+  spaced = false,
+  emphasize = false,
+}: {
+  operator?: EquationTerm['operator']
+  label: string
+  value: string
+  role: TermRole
+  note?: string
+  spaced?: boolean
+  emphasize?: boolean
+}) {
+  return (
+    <div
+      className={cx(
+        'grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-baseline gap-x-2.5 py-1',
+        role === 'result' && 'mt-1 border-t border-edge pt-2',
+        spaced && 'mt-2',
+      )}
+    >
+      <span className="w-3 text-center text-[12px] leading-none text-ink-faint">{operator}</span>
+      <dt className="min-w-0">
+        <span className={cx('text-[12px]', role === 'result' || emphasize ? 'text-ink' : 'text-ink-muted')}>
+          {label}
+        </span>
+        {note && <span className="block text-[11px] leading-snug text-ink-faint">{note}</span>}
+      </dt>
+      <dd
+        className={cx(
+          'text-right text-[12px] tnum',
+          emphasize && 'font-medium text-accent-bright',
+          !emphasize && role === 'result' && 'font-medium',
+          !emphasize && valueTone(role),
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+function WorstFirstStory({
+  selected,
+  winner,
+  peers,
+  lineCapacity,
+  onSelectSku,
+}: {
+  selected: PlanRow
+  winner: PeerStanding
+  peers: PeerStanding[]
+  lineCapacity: number
+  onSelectSku: (sku: string) => void
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2.5">
+      {selected.desiredBuild === 0 && (
+        <p className="text-[12.5px] leading-snug text-ink-muted">
+          {selected.sku} is already above its {selected.targetWeeks}-week target, so it does not compete
+          for this week&apos;s capacity.
+        </p>
+      )}
+      <p className="text-[12.5px] leading-snug text-ink-muted">
+        Worst-off first compares each SKU&apos;s cover{' '}
+        <span className="text-ink">before</span> this week&apos;s production is allocated.{' '}
+        {winner.sku} started furthest below the {winner.targetWeeks}-week target.
+      </p>
+
+      <PeerPhase
+        label="Before allocation"
+        hint="Starting cover — the ranking input"
+        peers={peers}
+        valueOf={(peer) => weeks(peer.startingCoverage, 2)}
+        showPriority
+        priorityBadge="Furthest below target"
+        priorityTitle="Furthest below target cover before this week's production was allocated"
+        onSelectSku={onSelectSku}
+      />
+
+      <CapacityHandoff capacity={lineCapacity} winner={winner} />
+
+      <PeerPhase
+        label="After allocation"
+        hint="Projected cover after this week's demand and planned production"
+        peers={peers}
+        valueOf={(peer) => weeks(peer.endingCoverage)}
+        secondaryOf={(peer) => (peer.build > 0 ? `+${units(peer.build)} allocated` : null)}
+        onSelectSku={onSelectSku}
+      />
+    </div>
+  )
+}
+
+function BacklogFirstStory({
+  selected,
+  winner,
+  peers,
+  lineCapacity,
+  onSelectSku,
+}: {
+  selected: PlanRow
+  winner: PeerStanding
+  peers: PeerStanding[]
+  lineCapacity: number
+  onSelectSku: (sku: string) => void
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2.5">
+      {selected.desiredBuild === 0 && (
+        <p className="text-[12.5px] leading-snug text-ink-muted">
+          {selected.sku} is already above its {selected.targetWeeks}-week target, so it does not compete
+          for this week&apos;s capacity.
+        </p>
+      )}
+      <p className="text-[12.5px] leading-snug text-ink-muted">
+        Owed customers first prioritizes existing customer obligations.{' '}
+        {winner.sku} had the largest outstanding backlog on this line before this week&apos;s production
+        was allocated.
+      </p>
+
+      <PeerPhase
+        label="Before allocation"
+        hint="Backlog — the ranking input"
+        peers={peers}
+        valueOf={(peer) => `${units(peer.startingBacklog)} owed`}
+        showPriority
+        priorityBadge="Largest backlog"
+        priorityTitle="Largest outstanding backlog on this production line."
+        onSelectSku={onSelectSku}
+      />
+
+      <CapacityHandoff capacity={lineCapacity} winner={winner} />
+
+      <PeerPhase
+        label="After allocation"
+        hint="Planned build and remaining obligation"
+        peers={peers}
+        valueOf={(peer) => `${units(peer.build)} allocated`}
+        secondaryOf={(peer) =>
+          peer.endingBacklog > 0 ? `${units(peer.endingBacklog)} still owed` : 'No remaining backlog'
+        }
+        onSelectSku={onSelectSku}
+      />
+    </div>
+  )
+}
+
+function CapacityHandoff({ capacity, winner }: { capacity: number; winner: PeerStanding }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 py-0.5 text-center text-[12px] text-ink-muted">
+      <span>
+        <span className="tnum font-medium text-ink">{units(capacity)}</span> units available
+      </span>
+      <span className="text-[11px] text-ink-faint" aria-hidden>
+        ↓
+      </span>
+      <span>
+        <span className="tnum font-medium text-accent-bright">{winner.sku}</span> receives{' '}
+        <span className="tnum font-medium text-ink">{units(winner.build)}</span>
+      </span>
+    </div>
+  )
+}
+
+function ProportionalStory({
+  selected,
+  needing,
+  lineNeed,
+  onSelectSku,
+}: {
+  selected: PlanRow
+  needing: PeerStanding[]
+  lineNeed: LineNeed
+  onSelectSku: (sku: string) => void
+}) {
+  const share = percent(lineNeed.coverage, 2)
+  const ordered = [...needing].sort((a, b) => b.desiredBuild - a.desiredBuild || a.sku.localeCompare(b.sku))
+
+  return (
+    <div className="mt-2 flex flex-col gap-2.5">
+      {selected.desiredBuild === 0 && (
+        <p className="text-[12.5px] leading-snug text-ink-muted">
+          {selected.sku} is already above its {selected.targetWeeks}-week target, so it does not compete
+          for this week&apos;s capacity.
+        </p>
+      )}
+      <p className="text-[12.5px] leading-snug text-ink-muted">
+        Only {units(lineNeed.capacity)} of the {units(lineNeed.totalRequired)} required units can be built
+        this week, so the line can cover {share} of total need. Proportional-to-need gives each SKU
+        approximately {share} of its required build.
+      </p>
+      <div className="overflow-hidden rounded-lg border border-edge">
+        <ul className="divide-y divide-edge">
+          {ordered.map((peer) => (
+            <li
+              key={peer.sku}
+              className={cx('flex flex-col gap-0.5 px-3 py-2', peer.isSelected && 'bg-hover/60')}
+            >
+              <PeerName peer={peer} onSelectSku={onSelectSku} />
+              <div className="text-[12px] text-ink-muted tnum">
+                {units(peer.desiredBuild)} needed {'\u00d7'} {share} {'\u2192'}{' '}
+                <span className="font-medium text-ink">{units(peer.build)} allocated</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-edge bg-raised/40 px-3 py-1.5 text-[11.5px] text-ink-muted tnum">
+          {ordered.map((peer) => units(peer.build)).join(' + ')} = {units(lineNeed.capacity)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PeerPhase({
+  label,
+  hint,
+  peers,
+  valueOf,
+  showPriority = false,
+  priorityBadge,
+  priorityTitle,
+  secondaryOf,
+  onSelectSku,
+}: {
+  label: string
+  hint: string
+  peers: PeerStanding[]
+  valueOf: (peer: PeerStanding) => string
+  showPriority?: boolean
+  priorityBadge?: string
+  priorityTitle?: string
+  secondaryOf?: (peer: PeerStanding) => string | null
+  onSelectSku: (sku: string) => void
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-edge">
+      <div className="border-b border-edge bg-raised/40 px-3 py-1.5">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">{label}</div>
+        <div className="text-[10.5px] text-ink-faint">{hint}</div>
+      </div>
+      <ul className="divide-y divide-edge">
+        {peers.map((peer) => {
+          const secondary = secondaryOf?.(peer) ?? null
+          return (
+            <li
+              key={`${label}-${peer.sku}`}
+              className={cx(
+                'flex items-center gap-2 px-3 py-1.5',
+                peer.prioritized && 'bg-accent-soft/55',
+                peer.isSelected && !peer.prioritized && 'bg-hover/60',
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <PeerName peer={peer} onSelectSku={onSelectSku} />
+                  {showPriority && peer.prioritized && priorityBadge && (
+                    <Badge tone="accent" title={priorityTitle}>
+                      {priorityBadge}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div
+                  className={cx(
+                    'tnum text-[13px]',
+                    peer.prioritized ? 'font-medium text-accent-bright' : 'font-medium text-ink',
+                  )}
+                >
+                  {valueOf(peer)}
+                </div>
+                {secondary && <div className="text-[10.5px] text-ink-faint">{secondary}</div>}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function PeerName({ peer, onSelectSku }: { peer: PeerStanding; onSelectSku: (sku: string) => void }) {
+  if (peer.isSelected) {
+    return (
+      <span className="text-[12.5px] font-medium tnum text-ink">
+        {peer.sku} <span className="font-normal text-ink-faint">{peer.size}</span>
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectSku(peer.sku)}
+      className="text-left text-[12.5px] tnum text-accent-bright underline decoration-dotted underline-offset-2 transition-colors hover:text-ink"
+    >
+      {peer.sku} <span className="text-ink-faint no-underline">{peer.size}</span>
+    </button>
+  )
+}
+
 function AllocationCopy({
   selected,
   others,
@@ -324,11 +717,11 @@ function AllocationCopy({
     const thisWon = winner?.sku === selected.sku
     return (
       <p className="mt-2 text-[12.5px] leading-snug text-ink-muted">
-        Both sizes need production, and the line cannot cover them. Capacity goes first to the SKU
-        furthest below its target cover
+        Both sizes need production, and the line cannot cover them. Worst-off first ranks SKUs by
+        cover before this week&apos;s production is allocated
         {thisWon
-          ? `: ${selected.sku} began at ${weeksPhrase(selected.startingCoverage)} of cover, so it receives ${units(selected.build)} of the ${units(lineCapacity)} available.`
-          : `. Capacity goes to ${winner.sku}, which began at ${weeksPhrase(winner.startingCoverage)} of cover versus this SKU’s ${weeksPhrase(selected.startingCoverage)}.`}
+          ? `: ${selected.sku} started furthest below target at ${weeksPhrase(selected.startingCoverage)} of cover, so it receives ${units(selected.build)} of the ${units(lineCapacity)} available.`
+          : `. Capacity goes to ${winner.sku}, which started at ${weeksPhrase(winner.startingCoverage)} of cover versus this SKU’s ${weeksPhrase(selected.startingCoverage)}.`}
       </p>
     )
   }
@@ -384,15 +777,20 @@ function Stat({
   value,
   tone = 'ink',
   hint,
+  tip,
 }: {
   label: string
   value: string
   tone?: 'ink' | 'pos' | 'warn'
   hint?: string | null
+  tip?: string
 }) {
   return (
     <div>
-      <dt className="text-[11px] text-ink-faint">{label}</dt>
+      <dt className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
+        {label}
+        {tip ? <InfoTip text={tip} /> : null}
+      </dt>
       <dd
         className={cx(
           'mt-0.5 text-[13px] font-medium tnum',
@@ -488,13 +886,13 @@ function Equation({
         <div key={`${term.label}-${index}`}>
           <div
             className={cx(
-              'flex items-start gap-2.5',
+              'grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-baseline gap-x-2.5',
               compact ? 'py-1' : 'py-1.5',
               term.role === 'result' && 'mt-1 border-t border-edge pt-2',
             )}
           >
-            <span className="w-3 shrink-0 text-center text-[12px] text-ink-faint">{term.operator}</span>
-            <dt className="min-w-0 flex-1">
+            <span className="w-3 text-center text-[12px] leading-none text-ink-faint">{term.operator}</span>
+            <dt className="min-w-0">
               <span
                 className={cx(
                   compact ? 'text-[12px]' : 'text-[12.5px]',
@@ -503,12 +901,12 @@ function Equation({
               >
                 {term.label}
               </span>
-              {term.note && <span className="block text-[11px] text-ink-faint">{term.note}</span>}
+              {term.note && <span className="block text-[11px] leading-snug text-ink-faint">{term.note}</span>}
               {afterLabel?.[term.label] ? <div className="mt-0.5">{afterLabel[term.label]}</div> : null}
             </dt>
             <dd
               className={cx(
-                'shrink-0 tnum',
+                'text-right tnum',
                 compact ? 'text-[12px]' : 'text-[12.5px]',
                 term.role === 'result' && 'font-medium',
                 valueTone(term.role),
@@ -551,7 +949,6 @@ function PeerList({
   if (peers.length < 2) return null
 
   const caption = competing ? ALLOCATION_PEER_CAPTIONS[rule] : null
-  const maxBacklog = Math.max(0, ...peers.filter((peer) => peer.desiredBuild > 0).map((peer) => peer.startingBacklog))
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-lg border border-edge">
@@ -562,7 +959,7 @@ function PeerList({
       <ul className="divide-y divide-edge">
         {peers.map((peer) => {
           const above = peer.startingCoverage >= peer.targetWeeks
-          const showPriority = allocationBadge(rule, peer, competing, maxBacklog)
+          const showPriority = allocationBadge(rule, peer, competing)
           return (
             <li
               key={peer.sku}
@@ -623,14 +1020,8 @@ function PeerList({
   )
 }
 
-function allocationBadge(
-  rule: RationingRule,
-  peer: PeerStanding,
-  competing: boolean,
-  maxBacklog: number,
-): boolean {
+function allocationBadge(rule: RationingRule, peer: PeerStanding, competing: boolean): boolean {
   if (!competing || peer.desiredBuild === 0) return false
-  if (rule === 'worst-first') return peer.prioritized
   if (rule === 'proportional') return peer.isSelected && peer.build > 0
-  return maxBacklog > 0 && peer.startingBacklog === maxBacklog && peer.build > 0
+  return peer.prioritized
 }

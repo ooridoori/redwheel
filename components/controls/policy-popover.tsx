@@ -61,7 +61,7 @@ export function AssumptionsPopover({
       label={
         <>
           <span className="text-ink-faint">Scenario</span>
-          <span className="text-ink">Configure</span>
+          <span className="text-ink">{RATIONING_LABELS[draft.rationing]}</span>
         </>
       }
       badge={isDirty ? 'dot' : null}
