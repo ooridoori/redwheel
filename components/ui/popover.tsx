@@ -6,7 +6,7 @@
  * Exists so the planner stays a single screen: controls that would otherwise
  * need their own column live behind a trigger instead.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { ChevronDownIcon } from './icons'
 import { cx } from './primitives'
 
@@ -50,6 +50,7 @@ export function Popover({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
         className={cx(
           'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] transition-colors',
           open
@@ -63,15 +64,24 @@ export function Popover({
       </button>
 
       {open && (
-        <div
-          style={{ width }}
-          className={cx(
-            'absolute top-[calc(100%+6px)] z-50 rounded-xl border border-edge-strong bg-surface p-4 shadow-2xl',
-            align === 'right' ? 'right-0' : 'left-0',
-          )}
-        >
-          {typeof children === 'function' ? children(() => setOpen(false)) : children}
-        </div>
+        <>
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-40 bg-canvas/70 sm:hidden"
+          />
+          <div
+            style={{ '--popover-width': `${width}px` } as CSSProperties}
+            className={cx(
+              'fixed inset-x-3 bottom-3 z-50 max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-edge-strong bg-surface p-4 shadow-2xl',
+              'sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-[calc(100%+6px)] sm:max-h-[calc(100dvh-5rem)] sm:w-[var(--popover-width)]',
+              align === 'right' ? 'sm:right-0' : 'sm:left-0',
+            )}
+          >
+            {typeof children === 'function' ? children(() => setOpen(false)) : children}
+          </div>
+        </>
       )}
     </div>
   )

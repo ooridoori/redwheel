@@ -5,8 +5,9 @@ import { derivationOf } from './derivation'
 import { coverGloss, skuStatus, weekTargetSummary } from './status'
 import { weeksPhrase } from '../format'
 import { scopeKpis } from './scope'
-import { chartReconcileCue, insightsFor } from './insights'
+import { insightsFor } from './insights'
 import {
+  aggregateCoverSummary,
   coverAxis,
   coverStatus,
   recoveryCaption,
@@ -200,7 +201,7 @@ describe('scenario copy follows the selected policy', () => {
   })
 })
 
-describe('line-level cover chart reads engine line weeks', () => {
+describe('aggregate line-cover chart reads engine line weeks', () => {
   it('annotates recoveries from firstWeekAtTarget, not from SKU rows', () => {
     const events = recoveryEvents(plan, ['road-base', 'road-carbon', 'mtb-base', 'mtb-carbon'])
     expect(events.map((event) => event.line)).toEqual(['road-base', 'road-carbon', 'mtb-carbon'])
@@ -209,7 +210,7 @@ describe('line-level cover chart reads engine line weeks', () => {
     const carbon = events.find((event) => event.line === 'mtb-carbon')!
     expect(carbon.week).toBe(plan.kpis.lines.find((line) => line.line === 'mtb-carbon')!.firstWeekAtTarget)
     expect(carbon.targetWeeks).toBe(15)
-    expect(recoveryCaption(carbon)).toBe('Mountain — Carbon reaches 15w target · Sep 2027')
+    expect(recoveryCaption(carbon)).toBe('Mountain — Carbon reaches 15w aggregate cover · Sep 2027')
   })
 
   it('caps the axis when Mountain — Base would stretch the target zone', () => {
@@ -233,6 +234,54 @@ describe('line-level cover chart reads engine line weeks', () => {
     )!
     expect(coverStatus(recoveredWeek.endingCoverage, recoveredWeek.targetWeeks)).toBe('At target')
   })
+
+  it('describes each aggregate-cover trajectory across the selected range', () => {
+    const point = (weekStart: string, endingCoverage: number) => ({
+      weekStart,
+      endingCoverage,
+      targetWeeks: 8,
+    })
+
+    expect(
+      aggregateCoverSummary(
+        'road-carbon',
+        [point('2026-09-07', 4), point('2026-09-14', 7)],
+        'selected range',
+      )?.state,
+    ).toBe('remains-below')
+    expect(
+      aggregateCoverSummary(
+        'road-carbon',
+        [point('2026-09-07', 4), point('2026-12-28', 8)],
+        'selected range',
+      )?.state,
+    ).toBe('reaches-reference')
+    expect(
+      aggregateCoverSummary(
+        'road-carbon',
+        [point('2026-09-07', 9), point('2026-11-02', 7)],
+        'selected range',
+      )?.state,
+    ).toBe('falls-below')
+    expect(
+      aggregateCoverSummary(
+        'road-carbon',
+        [point('2026-09-07', 8), point('2026-11-02', 10)],
+        'selected range',
+      )?.state,
+    ).toBe('remains-at-or-above')
+  })
+
+  it('uses the selected Road — Carbon trajectory rather than its opening state', () => {
+    const selectedWeeks = new Set(plan.weeks.slice(0, 26))
+    const points = plan.lineWeeks.filter(
+      (entry) => entry.line === 'road-carbon' && selectedWeeks.has(entry.weekStart),
+    )
+    const summary = aggregateCoverSummary('road-carbon', points, 'selected range')
+
+    expect(summary?.summary).toBe('Aggregate cover reaches 8w')
+    expect(summary?.detail).toBe('Road — Carbon reaches 8w aggregate cover in Dec 2026.')
+  })
 })
 
 describe('What to watch is decision-support, not a line-level recap', () => {
@@ -241,12 +290,29 @@ describe('What to watch is decision-support, not a line-level recap', () => {
     const byCategory = Object.fromEntries(watch.map((item) => [item.category, item]))
 
     expect(byCategory['Plan health']?.body).toMatch(/stays above its 12w target/)
-    expect(byCategory['SKU mix risk']?.body).toMatch(/Line-level cover is healthy/)
+    expect(byCategory['SKU mix risk']?.body).toMatch(/Aggregate line cover stays at\/above its reference/)
     expect(byCategory['SKU mix risk']?.body).toMatch(/below target/)
     expect(byCategory['SKU mix risk']?.action?.label).toBe('View affected SKU')
     expect(byCategory['SKU mix risk']?.action?.sku).toBeTruthy()
-    expect(byCategory['Capacity pressure']?.body).toMatch(/selected range/)
+    expect(byCategory['Capacity pressure']?.body).toMatch(/peaks in/)
+    expect(byCategory['Capacity pressure']?.action?.label).toBe('View peak constrained week')
+    const constrainedRow = plan.rows.find(
+      (row) =>
+        row.sku === byCategory['Capacity pressure']?.action?.sku &&
+        row.weekStart === byCategory['Capacity pressure']?.action?.weekStart,
+    )
+    expect(constrainedRow?.desiredBuild).toBeGreaterThan(constrainedRow?.build ?? 0)
     expect(byCategory['Recommended focus']?.body).toMatch(/rebalancing size mix/)
-    expect(chartReconcileCue(plan, 'mtb-base')).toBe('Line healthy overall · SKU mix uneven')
+  })
+
+  it('omits capacity pressure when there are no constrained rows to locate', () => {
+    const unconstrained = {
+      ...plan,
+      rows: plan.rows.map((row) => ({ ...row, build: row.desiredBuild })),
+    }
+
+    expect(insightsFor(unconstrained, 'all').map((item) => item.category)).not.toContain(
+      'Capacity pressure',
+    )
   })
 })

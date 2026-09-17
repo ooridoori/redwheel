@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+
+import { cleanup, render } from '@testing-library/react'
+import { createElement } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadPlanningInputs } from '../../lib/load-inputs'
 import { runAllocation } from '../../lib/engine'
 import { DEFAULT_POLICY } from '../../lib/engine/policy'
+import { PlanTable } from './plan-table'
 import { buildTableRows, resolveSelection } from './rows'
 
 const inputs = loadPlanningInputs()
@@ -9,6 +14,8 @@ const plan = runAllocation(inputs)
 const weeks26 = plan.weeks.slice(0, 26)
 const rows26 = buildTableRows(plan, 'all', weeks26)
 const rowsAll = buildTableRows(plan, 'all', plan.weeks)
+
+afterEach(cleanup)
 
 describe('drawer selection follows the latest plan, not a copied row', () => {
   it('closes when the selected SKU-week leaves the date range', () => {
@@ -47,5 +54,45 @@ describe('drawer selection follows the latest plan, not a copied row', () => {
     expect(after.endingCoverage).toBe(engineRow.endingCoverage)
     expect(after.detail.row).toBe(engineRow)
     expect(after.detail.row).not.toBe(before.detail.row)
+  })
+})
+
+describe('selected table row visibility', () => {
+  it('scrolls a newly selected SKU into view', () => {
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    const first = rows26[0]
+    const affected = rows26.find((row) => row.key !== first.key)!
+
+    const view = render(
+      createElement(PlanTable, {
+        rows: rows26,
+        selectedKey: first.key,
+        onSelect: () => undefined,
+      }),
+    )
+    scrollIntoView.mockClear()
+
+    view.rerender(
+      createElement(PlanTable, {
+        rows: rows26,
+        selectedKey: affected.key,
+        onSelect: () => undefined,
+      }),
+    )
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' })
+
+    scrollIntoView.mockClear()
+    view.rerender(
+      createElement(PlanTable, {
+        rows: rows26,
+        selectedKey: affected.key,
+        revealRequest: 1,
+        onSelect: () => undefined,
+      }),
+    )
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' })
   })
 })

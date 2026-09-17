@@ -35,6 +35,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
   const [scope, setScope] = useState<Scope>('all')
   const [rangeWeeks, setRangeWeeks] = useState(26)
   const [selection, setSelection] = useState<SelectionId | null>(null)
+  const [revealSelectionRequest, setRevealSelectionRequest] = useState(0)
   const [previousPlan, setPreviousPlan] = useState<BuildPlan | null>(null)
 
   const plan = useMemo(() => runAllocation(inputs, appliedPolicy), [inputs, appliedPolicy])
@@ -161,14 +162,14 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
             first on mobile because it is the screen's centrepiece.
           */}
           <div className="grid shrink-0 grid-cols-1 gap-3 lg:h-[264px] lg:grid-cols-[minmax(340px,1.1fr)_1.8fr]">
-            <section className="relative z-20 order-1 flex h-[260px] min-h-0 flex-col overflow-visible rounded-xl border border-edge bg-surface px-4 py-3 lg:order-2 lg:h-auto lg:min-h-0">
+            <section className="relative z-20 order-1 flex h-[340px] min-h-0 flex-col overflow-visible rounded-xl border border-edge bg-surface px-4 py-3 sm:h-[360px] lg:order-2 lg:h-auto lg:min-h-0">
               {isRunning ? (
                 <ChartSkeleton />
               ) : (
                 <WosChart plan={plan} scope={scope} visibleWeeks={visibleWeeks} />
               )}
             </section>
-            <section className="order-2 max-h-[200px] min-h-0 overflow-y-auto rounded-xl border border-edge bg-surface px-4 py-3 lg:order-1 lg:max-h-none">
+            <section className="order-2 min-h-0 overflow-visible rounded-xl border border-edge bg-surface px-4 py-3 lg:order-1 lg:max-h-none lg:overflow-y-auto">
               {isRunning ? (
                 <InsightSkeleton />
               ) : (
@@ -176,7 +177,10 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                   plan={plan}
                   scope={scope}
                   visibleWeeks={visibleWeeks}
-                  onViewSku={(action) => setSelection({ sku: action.sku, weekStart: action.weekStart })}
+                  onViewSku={(action) => {
+                    setSelection({ sku: action.sku, weekStart: action.weekStart })
+                    setRevealSelectionRequest((request) => request + 1)
+                  }}
                 />
               )}
             </section>
@@ -196,6 +200,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
                 <PlanTable
                   rows={tableRows}
                   selectedKey={selected?.key ?? null}
+                  revealRequest={revealSelectionRequest}
                   onSelect={(row) => setSelection({ sku: row.sku, weekStart: row.weekStart })}
                   diff={diff}
                 />

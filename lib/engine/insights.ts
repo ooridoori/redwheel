@@ -6,7 +6,7 @@
  * and plan rows — nothing here recomputes cover.
  */
 import { LINE_LABELS, type LineId } from '../domain'
-import { units, weekLabelLong, weeks as formatWeeks, percent } from '../format'
+import { units, weekLabelLong, weeks as formatWeeks } from '../format'
 import type { BuildPlan, LineKpi, PlanRow } from './index'
 import { targetWeeksFor } from './policy'
 import type { Scope } from './scope'
@@ -31,7 +31,7 @@ export interface SkuMixFinding {
   line: LineId
   worst: PlanRow
   best: PlanRow
-  /** True when every week on this line finishes at or above its target. */
+  /** True when aggregate cover finishes at/above its reference every week. */
   lineHealthy: boolean
 }
 
@@ -48,27 +48,9 @@ export function insightsFor(plan: BuildPlan, scope: Scope, weeks?: string[]): In
   return [
     planHealth(plan, lines),
     skuMixRisk(mix, lines.length === 1),
-    capacityPressure(plan, lines, rows, weeks),
+    capacityPressure(rows),
     recommendedFocus(mix, lines),
   ].filter((insight): insight is Insight => insight !== null)
-}
-
-/** One-line cue that reconciles the line chart with SKU mix. */
-export function chartReconcileCue(plan: BuildPlan, scope: Scope): string | null {
-  const mix = skuMixFinding(plan, scope)
-  if (scope !== 'all') {
-    const lineWeeks = plan.lineWeeks.filter((entry) => entry.line === scope)
-    const healthy = lineWeeks.length > 0 && lineWeeks.every((entry) => entry.atTarget)
-    const uneven = Boolean(mix && mix.worst.startingCoverage < mix.worst.targetWeeks)
-    if (healthy && uneven) return 'Line healthy overall \u00b7 SKU mix uneven'
-    if (healthy) return 'Line healthy overall'
-    if (uneven) return 'Line below target \u00b7 SKU mix uneven'
-    return null
-  }
-  if (mix && mix.worst.startingCoverage < mix.worst.targetWeeks) {
-    return 'Line-level view \u00b7 SKU mix can hide shortages'
-  }
-  return null
 }
 
 export function skuMixFinding(plan: BuildPlan, scope: Scope): SkuMixFinding | null {
@@ -153,7 +135,9 @@ function skuMixRisk(mix: SkuMixFinding | null, singleLine: boolean): Insight | n
   const gap = short.targetWeeks - short.startingCoverage
   const shortBit = `size ${short.size} starts ${formatWeeks(gap)} below target`
   const overBit = `size ${over.size} holds ${formatWeeks(over.startingCoverage)}`
-  const lineBit = singleLine ? 'Line-level cover is healthy' : `${LINE_LABELS[mix.line]} line-level cover is healthy`
+  const lineBit = singleLine
+    ? 'Aggregate line cover stays at/above its reference'
+    : `${LINE_LABELS[mix.line]} aggregate cover stays at/above its reference`
 
   const body =
     mix.lineHealthy && short.startingCoverage < short.targetWeeks
@@ -172,29 +156,56 @@ function skuMixRisk(mix: SkuMixFinding | null, singleLine: boolean): Insight | n
   }
 }
 
-function capacityPressure(
-  plan: BuildPlan,
-  lines: LineKpi[],
-  rows: PlanRow[],
-  weeks?: string[],
-): Insight {
-  const tightest = [...lines].sort((a, b) => b.utilization - a.utilization)[0]
-  const constrained = rows.filter((row) => row.desiredBuild > row.build).length
-  const rangeNote =
-    weeks && weeks.length < plan.weeks.length ? ' in the selected range' : ' over the full horizon'
-  const util =
-    lines.length === 1
-      ? `Tightest utilization: ${percent(tightest.utilization, 0)}.`
-      : `Tightest utilization: ${LINE_LABELS[tightest.line]} ${percent(tightest.utilization, 0)}.`
+function capacityPressure(rows: PlanRow[]): Insight | null {
+  const constrained = rows.filter((row) => row.desiredBuild > row.build)
+  if (constrained.length === 0) return null
+
+  const lineCounts = countBy(constrained, (row) => row.line)
+  const affectedLine = maxEntry(lineCounts)![0]
+  const affectedRows = constrained.filter((row) => row.line === affectedLine)
+
+  const monthCounts = countBy(affectedRows, (row) => row.weekStart.slice(0, 7))
+  const peakMonth = maxEntry(monthCounts)![0]
+  const peakRows = affectedRows.filter((row) => row.weekStart.startsWith(peakMonth))
+
+  const weekCounts = countBy(peakRows, (row) => row.weekStart)
+  const peakWeek = maxEntry(weekCounts)![0]
+  const representative = peakRows
+    .filter((row) => row.weekStart === peakWeek)
+    .sort((a, b) => b.desiredBuild - b.build - (a.desiredBuild - a.build))[0]
+
+  const multipleLines = new Set(rows.map((row) => row.line)).size > 1
+  const lineFinding = multipleLines
+    ? `${LINE_LABELS[affectedLine]} has the most constrained SKU-weeks (${units(affectedRows.length)}). `
+    : ''
 
   return {
     category: 'Capacity pressure',
-    tone: constrained > 0 || tightest.utilization > 0.9 ? 'watch' : 'neutral',
-    body:
-      constrained === 0
-        ? `No SKU-weeks are constrained${rangeNote}. ${util}`
-        : `${units(constrained)} SKU-weeks are constrained${rangeNote}. ${util}`,
+    tone: 'watch',
+    body: `${lineFinding}Pressure${multipleLines ? ' on that line' : ''} peaks in ${monthYear(peakWeek)}, with ${units(peakRows.length)} constrained SKU-weeks.`,
+    action: {
+      label: 'View peak constrained week',
+      sku: representative.sku,
+      weekStart: representative.weekStart,
+    },
   }
+}
+
+function countBy<T, K>(items: T[], keyOf: (item: T) => K): Map<K, number> {
+  const counts = new Map<K, number>()
+  for (const item of items) {
+    const key = keyOf(item)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
+function maxEntry<K>(counts: Map<K, number>): [K, number] | null {
+  let maximum: [K, number] | null = null
+  for (const entry of counts) {
+    if (!maximum || entry[1] > maximum[1]) maximum = entry
+  }
+  return maximum
 }
 
 function recommendedFocus(mix: SkuMixFinding | null, lines: LineKpi[]): Insight | null {

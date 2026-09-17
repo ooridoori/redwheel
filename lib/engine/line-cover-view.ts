@@ -1,5 +1,5 @@
 /**
- * Presentation helpers for the line-level cover chart.
+ * Presentation helpers for the aggregate line-cover chart.
  *
  * Every figure is taken from `plan.lineWeeks` / `plan.kpis.lines`. Nothing here
  * recomputes weeks of supply — it only decides what to label, what to dash,
@@ -25,6 +25,77 @@ export interface CoverAxis {
   max: number
   capped: boolean
   overflow: OverflowLine[]
+}
+
+export type AggregateTrajectoryState =
+  | 'remains-below'
+  | 'reaches-reference'
+  | 'falls-below'
+  | 'remains-at-or-above'
+
+export interface AggregateCoverPoint {
+  weekStart: string
+  endingCoverage: number
+  targetWeeks: number
+}
+
+export interface AggregateCoverSummary {
+  state: AggregateTrajectoryState
+  summary: string
+  detail: string
+}
+
+/**
+ * Describes the plotted aggregate trajectory without treating it as proof that
+ * the line's individual SKUs meet their cover objectives.
+ */
+export function aggregateCoverSummary(
+  line: LineId,
+  points: AggregateCoverPoint[],
+  rangeName: 'selected range' | 'planning horizon',
+): AggregateCoverSummary | null {
+  if (points.length === 0) return null
+
+  const ordered = [...points].sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+  const firstIsBelow = coverStatus(ordered[0].endingCoverage, ordered[0].targetWeeks) === 'Below target'
+  const transition = firstIsBelow
+    ? ordered.slice(1).find((point) => coverStatus(point.endingCoverage, point.targetWeeks) !== 'Below target')
+    : ordered.slice(1).find((point) => coverStatus(point.endingCoverage, point.targetWeeks) === 'Below target')
+
+  if (firstIsBelow && transition) {
+    return {
+      state: 'reaches-reference',
+      summary: `Aggregate cover reaches ${transition.targetWeeks}w`,
+      detail: `${LINE_LABELS[line]} reaches ${transition.targetWeeks}w aggregate cover in ${monthYear(transition.weekStart)}.`,
+    }
+  }
+
+  if (!firstIsBelow && transition) {
+    return {
+      state: 'falls-below',
+      summary: `Aggregate cover falls below ${transition.targetWeeks}w`,
+      detail: `${LINE_LABELS[line]} falls below ${transition.targetWeeks}w aggregate cover in ${monthYear(transition.weekStart)}.`,
+    }
+  }
+
+  const stableReference = ordered.every((point) => point.targetWeeks === ordered[0].targetWeeks)
+  const reference = stableReference
+    ? `${ordered[0].targetWeeks}w aggregate cover`
+    : 'its weekly aggregate-cover reference'
+
+  if (firstIsBelow) {
+    return {
+      state: 'remains-below',
+      summary: `Aggregate cover remains below ${reference}`,
+      detail: `${LINE_LABELS[line]} remains below ${reference} throughout the ${rangeName}.`,
+    }
+  }
+
+  return {
+    state: 'remains-at-or-above',
+    summary: `Aggregate cover remains at/above ${reference}`,
+    detail: `${LINE_LABELS[line]} remains at or above ${reference} throughout the ${rangeName}.`,
+  }
 }
 
 /** Lines that opened below target and later reach it, using the engine's first-at-target week. */
@@ -101,7 +172,7 @@ export function coverStatus(
 }
 
 export function recoveryCaption(event: RecoveryEvent): string {
-  return `${LINE_LABELS[event.line]} reaches ${event.targetWeeks}w target \u00b7 ${monthYear(event.week)}`
+  return `${LINE_LABELS[event.line]} reaches ${event.targetWeeks}w aggregate cover \u00b7 ${monthYear(event.week)}`
 }
 
 /** `2027-08-23` → `Aug 2027`. */

@@ -10,7 +10,7 @@
  * Weeks collapse so a long horizon stays scannable: the selected week stays
  * open; others start closed and expand from a chevron on the week label.
  */
-import { useMemo, useState, type ReactNode, Fragment } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, Fragment } from 'react'
 import { percent, units, weekLabel, weeks, yearOf } from '@/lib/format'
 import { NO_DIFF, type PlanDiff } from '@/lib/engine/diff'
 import { Badge, Bone, cx } from '@/components/ui/primitives'
@@ -19,26 +19,38 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@/components/ui/ic
 import { skuStatus, weekTargetSummary } from '@/lib/engine/status'
 import type { TableRow } from './rows'
 
-const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string }[] = [
+const COLUMNS: { label: string; align: 'left' | 'right'; hint?: string; hideOnMobile?: boolean }[] = [
   { label: 'Week', align: 'left' },
   { label: 'SKU', align: 'left' },
-  { label: 'Line', align: 'left' },
+  { label: 'Line', align: 'left', hideOnMobile: true },
   {
     label: 'Forecast',
     align: 'right',
     hint: 'Forecast demand the plant must cover this week, including dealer-channel forecast. Dealer-held inventory does not reduce this.',
+    hideOnMobile: true,
   },
   {
     label: 'Starting inv',
     align: 'right',
     hint: 'Redwheel plant stock at the start of the week. Dealer-held inventory has already been sold and is not included.',
+    hideOnMobile: true,
   },
-  { label: 'Backlog', align: 'right', hint: 'Units already owed to customers' },
-  { label: 'Target cover', align: 'right', hint: 'Required weeks of cover' },
-  { label: 'Build needed', align: 'right', hint: 'Units this SKU needs this week to reach target cover' },
+  { label: 'Backlog', align: 'right', hint: 'Units already owed to customers', hideOnMobile: true },
+  { label: 'Target cover', align: 'right', hint: 'Required weeks of cover', hideOnMobile: true },
+  {
+    label: 'Build needed',
+    align: 'right',
+    hint: 'Units this SKU needs this week to reach target cover',
+    hideOnMobile: true,
+  },
   { label: 'Planned build', align: 'right', hint: "Units allocated after the line's capacity was divided" },
-  { label: 'Capacity', align: 'right', hint: 'Weekly ceiling for this line, shared across its sizes' },
-  { label: 'Ending inv', align: 'right', hint: 'Stock on hand at the end of the week' },
+  {
+    label: 'Capacity',
+    align: 'right',
+    hint: 'Weekly ceiling for this line, shared across its sizes',
+    hideOnMobile: true,
+  },
+  { label: 'Ending inv', align: 'right', hint: 'Stock on hand at the end of the week', hideOnMobile: true },
   { label: 'Ending cover', align: 'right', hint: 'Weeks of cover at week end, against target cover' },
 ]
 
@@ -48,11 +60,14 @@ export function PlanTable({
   rows,
   selectedKey,
   onSelect,
+  revealRequest = 0,
   diff = NO_DIFF,
 }: {
   rows: TableRow[]
   selectedKey: string | null
   onSelect: (row: TableRow) => void
+  /** Increment to reveal the selection again even when its key has not changed. */
+  revealRequest?: number
   /** Which builds and cover figures the last run moved. */
   diff?: PlanDiff
 }) {
@@ -62,6 +77,11 @@ export function PlanTable({
 
   // Overrides against the default (only the focused week open). Missing → default.
   const [weekOpen, setWeekOpen] = useState<Record<string, boolean>>({})
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null)
+
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' })
+  }, [selectedKey, revealRequest])
 
   if (rows.length === 0) {
     return (
@@ -72,6 +92,7 @@ export function PlanTable({
   }
 
   function isWeekOpen(weekStart: string): boolean {
+    if (selectedKey && weekStart === focusWeek) return true
     if (weekStart in weekOpen) return weekOpen[weekStart]
     return weekStart === focusWeek
   }
@@ -132,6 +153,7 @@ export function PlanTable({
               className={cx(
                 'border-b border-edge bg-surface px-3 py-2 font-normal whitespace-nowrap text-ink-faint',
                 column.align === 'right' ? 'text-right' : 'text-left',
+                column.hideOnMobile && 'hidden sm:table-cell',
               )}
             >
               {column.label}
@@ -173,6 +195,7 @@ export function PlanTable({
                 return (
                   <tr
                     key={row.key}
+                    ref={isSelected ? selectedRowRef : undefined}
                     onClick={() => {
                       setWeekOpen((previous) => ({ ...previous, [row.weekStart]: true }))
                       onSelect(row)
@@ -192,29 +215,29 @@ export function PlanTable({
                       <span className="ml-1.5 text-[11px] text-ink-faint">{row.size}</span>
                     </Cell>
 
-                    <Cell weekGroup={false}>
+                    <Cell weekGroup={false} hideOnMobile>
                       <span className="text-[11.5px] text-ink-faint">{row.lineLabel}</span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-muted">{units(row.forecast)}</span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-muted">{units(row.startingInventory)}</span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className={cx('tnum', row.startingBacklog > 0 ? 'text-neg' : 'text-ink-faint')}>
                         {row.startingBacklog > 0 ? units(row.startingBacklog) : '—'}
                       </span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-faint">{row.targetWeeks}w</span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-muted">
                         {row.desiredBuild > 0 ? units(row.desiredBuild) : '—'}
                       </span>
@@ -241,11 +264,11 @@ export function PlanTable({
                       )}
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-faint">{units(row.capacity)}</span>
                     </Cell>
 
-                    <Cell weekGroup={false} align="right">
+                    <Cell weekGroup={false} align="right" hideOnMobile>
                       <span className="tnum text-ink-muted">{units(row.endingInventory)}</span>
                     </Cell>
 
@@ -375,12 +398,14 @@ function Cell({
   align = 'left',
   weekGroup,
   tight = false,
+  hideOnMobile = false,
 }: {
   children: ReactNode
   align?: 'left' | 'right'
   /** Stronger rule between weeks; hairline within a week. */
   weekGroup: boolean
   tight?: boolean
+  hideOnMobile?: boolean
 }) {
   return (
     <td
@@ -389,6 +414,7 @@ function Cell({
         tight ? 'px-2 py-[5px]' : 'px-3 py-[5px]',
         align === 'right' ? 'text-right' : 'text-left',
         weekGroup ? 'border-t border-edge-strong' : 'border-t border-edge/50',
+        hideOnMobile && 'hidden sm:table-cell',
       )}
     >
       {children}
@@ -454,6 +480,7 @@ export function PlanTableSkeleton() {
               className={cx(
                 'border-b border-edge bg-surface px-3 py-2 font-normal whitespace-nowrap text-ink-faint',
                 column.align === 'right' ? 'text-right' : 'text-left',
+                column.hideOnMobile && 'hidden sm:table-cell',
               )}
             >
               {column.label}
@@ -472,6 +499,7 @@ export function PlanTableSkeleton() {
                   'px-3 py-[7px]',
                   column.align === 'right' ? 'text-right' : 'text-left',
                   index === 0 ? 'border-t border-edge-strong' : 'border-t border-edge/50',
+                  column.hideOnMobile && 'hidden sm:table-cell',
                 )}
               >
                 <Bone className={cx('inline-block h-3', column.align === 'right' ? 'w-10' : 'w-16')} />

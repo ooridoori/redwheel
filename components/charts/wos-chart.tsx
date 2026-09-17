@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Line-level cover vs target: when does each production line recover?
+ * Aggregate line cover: how does each production line's combined inventory move?
  *
  * Plots engine `lineWeeks` only. SKU shortages are a different grain — the
  * title, subtitle and caption say so, because a line at target can still hide
@@ -24,12 +24,13 @@ import type { BuildPlan } from '@/lib/engine'
 import { targetWeeksFor } from '@/lib/engine/policy'
 import type { Scope } from '@/lib/engine/scope'
 import {
+  aggregateCoverSummary,
   coverAxis,
   coverStatus,
   recoveryCaption,
   recoveryEvents,
 } from '@/lib/engine/line-cover-view'
-import { chartReconcileCue } from '@/lib/engine/insights'
+import { skuMixFinding } from '@/lib/engine/insights'
 import { Bone } from '@/components/ui/primitives'
 
 export const LINE_COLORS: Record<LineId, string> = {
@@ -57,15 +58,31 @@ export function WosChart({
   const recoveries = recoveryEvents(plan, lines)
   const recoveredAt = new Map(recoveries.map((event) => [event.line, event.week]))
   const axis = coverAxis(plan, lines)
-  const cue = chartReconcileCue(plan, scope)
   const single = lines.length === 1
+  const visibleWeekSet = new Set(visibleWeeks)
+  const trajectory = single
+    ? aggregateCoverSummary(
+        lines[0],
+        plan.lineWeeks.filter(
+          (entry) => entry.line === lines[0] && visibleWeekSet.has(entry.weekStart),
+        ),
+        visibleWeeks.length < plan.weeks.length ? 'selected range' : 'planning horizon',
+      )
+    : null
+  const mix = skuMixFinding(plan, scope)
+  const mixUneven = Boolean(mix && mix.worst.startingCoverage < mix.worst.targetWeeks)
+  const cue = trajectory
+    ? `${trajectory.summary}${mixUneven ? ' \u00b7 SKU mix remains uneven' : ''}`
+    : mixUneven
+      ? 'SKU mix remains uneven beneath the aggregate line results'
+      : null
   const startTarget = single ? targetWeeksFor(plan.policy, lines[0], plan.weeks[0]) : null
   const endTarget = single ? targetWeeksFor(plan.policy, lines[0], plan.weeks.at(-1)!) : null
   const targetLabel =
     startTarget != null && endTarget != null
       ? startTarget === endTarget
-        ? `Target = ${startTarget}w`
-        : `Target = ${startTarget}w \u2192 ${endTarget}w`
+        ? `Aggregate reference = ${startTarget}w`
+        : `Aggregate reference = ${startTarget}w \u2192 ${endTarget}w`
       : null
 
   const coverageByKey = new Map(
@@ -92,9 +109,9 @@ export function WosChart({
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-1.5 flex shrink-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-medium text-ink">Line-level cover vs target</h2>
+          <h2 className="text-[15px] font-medium text-ink">Aggregate line cover</h2>
           <p className="mt-0.5 text-[13px] leading-snug text-ink-faint">
-            Aggregated line cover; individual SKUs may still be below target.
+            Summary of inventory coverage across the line. Individual SKU cover may vary.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -106,15 +123,15 @@ export function WosChart({
           ))}
           <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
             <span className="w-3.5 border-t border-ink-muted" />
-            Projected
+            Aggregate cover
             <span className="ml-1 w-3.5 border-t border-dashed border-ink-muted" />
-            Target
+            Reference
           </span>
         </div>
       </div>
 
       <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+        <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 14, right: single ? 72 : 10, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="#272a32" vertical={false} />
             <XAxis
@@ -129,6 +146,7 @@ export function WosChart({
             <YAxis
               domain={[axis.min, axis.max]}
               allowDataOverflow
+              padding={{ top: 6 }}
               tickFormatter={(value: number) => `${value}w`}
               stroke="#6e7480"
               fontSize={10.5}
@@ -232,17 +250,29 @@ export function WosChart({
         <p className="mt-1 shrink-0 text-[13px] leading-snug text-ink-muted">{cue}</p>
       )}
 
-      {recoveries.length > 0 && (
+      {trajectory && (
         <p className="mt-0.5 shrink-0 text-[10.5px] leading-snug text-ink-faint">
+          {trajectory.detail}
+        </p>
+      )}
+
+      {!single && recoveries.length > 0 && (
+        <p className="mt-0.5 hidden shrink-0 text-[10.5px] leading-snug text-ink-faint sm:block">
           {recoveries.map((event) => recoveryCaption(event)).join('  ·  ')}
         </p>
       )}
 
       {axis.capped && axis.overflow.length > 0 && (
-        <p className="mt-0.5 shrink-0 text-[10.5px] leading-snug text-ink-faint">
-          {axis.overflow.map((entry) => `${LINE_LABELS[entry.line]} peaks at ${weeks(entry.peak)}`).join('; ')};
-          scale capped at {axis.max}w so the target zone stays readable.
-        </p>
+        <>
+          <p className="mt-0.5 shrink-0 text-[10.5px] leading-snug text-ink-faint sm:hidden">
+            {axis.overflow.length} {axis.overflow.length === 1 ? 'line exceeds' : 'lines exceed'} the chart scale;
+            capped at {axis.max}w.
+          </p>
+          <p className="mt-0.5 hidden shrink-0 text-[10.5px] leading-snug text-ink-faint sm:block">
+            {axis.overflow.map((entry) => `${LINE_LABELS[entry.line]} peaks at ${weeks(entry.peak)}`).join('; ')};
+            scale capped at {axis.max}w so the target zone stays readable.
+          </p>
+        </>
       )}
     </div>
   )
@@ -277,11 +307,11 @@ function CoverTooltip({
         </div>
         <div className="mt-0.5 text-ink-faint tnum">{weekLabelLong(week)}</div>
         <div className="mt-1 flex justify-between gap-4 text-ink-muted">
-          <span>Projected cover</span>
+          <span>Aggregate cover</span>
           <span className="tnum text-ink">{weeks(row.endingCoverage)}</span>
         </div>
         <div className="flex justify-between gap-4 text-ink-muted">
-          <span>Target</span>
+          <span>Aggregate reference</span>
           <span className="tnum text-ink">{weeks(row.targetWeeks)}</span>
         </div>
         <div
@@ -298,6 +328,7 @@ function CoverTooltip({
   return (
     <div className="rounded-lg border border-edge-strong bg-raised px-2.5 py-2 text-[11.5px] shadow-xl">
       <div className="mb-1.5 text-ink-faint tnum">{weekLabelLong(week)}</div>
+      <div className="mb-1 text-[10.5px] text-ink-faint">Aggregate cover / reference</div>
       <div className="flex flex-col gap-1">
         {rows.map((row) => {
           const status = coverStatus(row.endingCoverage, row.targetWeeks)
@@ -330,16 +361,16 @@ function CoverTooltip({
 }
 
 function statusLabel(status: ReturnType<typeof coverStatus>, gap: number): string {
-  if (status === 'Below target') return `${weeksPhrase(gap, 1)} below`
-  if (status === 'Above target') return 'Above target'
-  return 'At target'
+  if (status === 'Below target') return `${weeksPhrase(gap, 1)} below reference`
+  if (status === 'Above target') return 'Above reference'
+  return 'Meets reference'
 }
 
 export function ChartSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col" aria-hidden>
       <div className="mb-1.5 flex shrink-0 flex-col gap-1">
-        <h2 className="text-[15px] font-medium text-ink">Line-level cover vs target</h2>
+        <h2 className="text-[15px] font-medium text-ink">Aggregate line cover</h2>
         <Bone className="h-3 w-64" />
       </div>
       <Bone className="min-h-0 flex-1 rounded-lg" />

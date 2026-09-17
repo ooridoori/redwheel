@@ -75,9 +75,12 @@ export function AssumptionsPopover({
         >
           <div className="flex flex-col gap-1.5">
             {LINES.map((line) => (
-              <div key={line} className="flex items-center justify-between gap-3">
+              <div
+                key={line}
+                className="grid grid-cols-1 items-center gap-1.5 min-[400px]:grid-cols-[minmax(0,1fr)_auto] min-[400px]:gap-3"
+              >
                 <span className="text-[12.5px] whitespace-nowrap text-ink-muted">{LINE_LABELS[line]}</span>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   {draft.targets[line].map((rule, index) => (
                     <Stepper
                       key={rule.from}

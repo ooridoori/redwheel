@@ -204,7 +204,7 @@ export function InsightPanel({
         </span>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-visible pr-1 lg:overflow-y-auto">
         {insights.map((insight) => (
           <div
             key={insight.category}
