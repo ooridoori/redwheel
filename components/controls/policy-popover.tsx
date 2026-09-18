@@ -10,7 +10,7 @@
  * rather than watching the plan thrash on every keystroke.
  */
 import { LINES, LINE_LABELS, type LineId } from '@/lib/domain'
-import { weekLabelLong } from '@/lib/format'
+import { targetPeriodLabel } from '@/lib/format'
 import {
   RATIONING_DESCRIPTIONS,
   RATIONING_LABELS,
@@ -31,6 +31,7 @@ export function AssumptionsPopover({
   onChange,
   onReset,
   isDirty,
+  horizonYear = '2028',
 }: {
   draft: Policy
   /**
@@ -41,6 +42,8 @@ export function AssumptionsPopover({
   onChange: (update: (previous: Policy) => Policy) => void
   onReset: () => void
   isDirty: boolean
+  /** Last year of the planning horizon; constant mountain rules span through it. */
+  horizonYear?: string
 }) {
   const stepTarget = (line: LineId, index: number, delta: number) => {
     onChange((previous) => ({
@@ -81,15 +84,18 @@ export function AssumptionsPopover({
               >
                 <span className="text-[12.5px] whitespace-nowrap text-ink-muted">{LINE_LABELS[line]}</span>
                 <div className="flex flex-wrap items-center gap-1">
-                  {draft.targets[line].map((rule, index) => (
-                    <Stepper
-                      key={rule.from}
-                      value={rule.weeks}
-                      title={`In force from ${weekLabelLong(rule.from)}`}
-                      badge={draft.targets[line].length > 1 ? rule.from.slice(0, 4) : undefined}
-                      onStep={(delta) => stepTarget(line, index, delta)}
-                    />
-                  ))}
+                  {draft.targets[line].map((rule, index) => {
+                    const period = targetPeriodLabel(draft.targets[line], index, horizonYear)
+                    return (
+                      <Stepper
+                        key={rule.from}
+                        value={rule.weeks}
+                        title={`In force ${period}`}
+                        badge={period}
+                        onStep={(delta) => stepTarget(line, index, delta)}
+                      />
+                    )
+                  })}
                 </div>
               </div>
             ))}
@@ -171,7 +177,9 @@ function Stepper({
 }) {
   return (
     <div title={title} className="flex items-center overflow-hidden rounded-md border border-edge bg-raised">
-      {badge && <span className="border-r border-edge px-1.5 text-[10px] text-ink-faint tnum">{badge}</span>}
+      {badge && (
+        <span className="whitespace-nowrap border-r border-edge px-1.5 text-[10px] text-ink-faint tnum">{badge}</span>
+      )}
       <button
         type="button"
         onClick={() => onStep(-1)}

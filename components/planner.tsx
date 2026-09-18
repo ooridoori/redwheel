@@ -16,7 +16,7 @@ import { runAllocation, DEFAULT_POLICY, type BuildPlan, type Policy } from '@/li
 import { usesBriefTargets } from '@/lib/engine/policy'
 import { diffPlans } from '@/lib/engine/diff'
 import type { Scope } from '@/lib/engine/scope'
-import { weekLabelLong } from '@/lib/format'
+import { weekLabelLong, yearOf } from '@/lib/format'
 import { cx } from '@/components/ui/primitives'
 import { RunIcon, SpinnerIcon } from '@/components/ui/icons'
 import { AssumptionsPopover } from '@/components/controls/policy-popover'
@@ -113,6 +113,7 @@ export function Planner({ inputs }: { inputs: PlanningInputs }) {
             onChange={setDraftPolicy}
             onReset={() => setDraftPolicy(DEFAULT_POLICY)}
             isDirty={isDirty}
+            horizonYear={yearOf(plan.weeks.at(-1)!)}
           />
 
           <button

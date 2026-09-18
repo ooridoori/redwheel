@@ -28,3 +28,18 @@ describe('scenario trigger names the selected allocation policy', () => {
     expect(view.getAllByText('Proportional to need').length).toBeGreaterThan(1)
   })
 })
+
+describe('target-cover period labels', () => {
+  it('shows 2026–27 then 2028 on Road, and a single 2026-2028 span on Mountain', () => {
+    const view = render(
+      <AssumptionsPopover draft={DEFAULT_POLICY} onChange={() => undefined} onReset={() => undefined} isDirty={false} />,
+    )
+
+    fireEvent.click(view.getByRole('button', { name: /ScenarioWorst-off first/ }))
+
+    expect(view.getAllByText('2026–27')).toHaveLength(2)
+    expect(view.getAllByText('2028')).toHaveLength(2)
+    expect(view.getAllByText('2026-2028')).toHaveLength(2)
+    expect(view.queryByText('2026–2027')).toBeNull()
+  })
+})

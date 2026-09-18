@@ -9,7 +9,11 @@
 - **Dealer inventory:** Dealer stock has already been wholesaled and is therefore considered off Red Wheel's books. It does not reduce Red Wheel's production requirements.
 - **Capacity is the constraint:** When a line can satisfy every SKU's requirements, allocation policy doesn't matter. The policy matters when total required production exceeds that week's line capacity.
 
+
+
 ## Engine model
+
+
 
 ### Inventory and backlog rollover
 
@@ -24,7 +28,7 @@ Required build = target inventory + obligations - starting available inventory
 ```
 
 - If the required build is less than or equal to weekly capacity, build what each SKU needs.
-- If not, the line is constrained, so the allocation policy determines which SKU receives the scarce capacity first.
+- If not, the line is constrained, so the allocation policy determines how the available capacity is distributed across the SKUs
 
 ## Allocation policy assumptions
 

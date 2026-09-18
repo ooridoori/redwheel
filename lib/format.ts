@@ -65,6 +65,29 @@ export function yearOf(isoDate: string): string {
   return isoDate.slice(0, 4)
 }
 
+/**
+ * Date span shown on a cover-target stepper.
+ *
+ * Stepped rules (Road) use a compact en-dash span, then the step-up year:
+ * `2026–27`, `2028`. That makes the 8-week target visibly apply across both
+ * 2026 and 2027. A single constant rule (Mountain) uses a hyphenated full
+ * span (`2026-2028`) so it reads as one period, not a start year.
+ */
+export function targetPeriodLabel(
+  rules: ReadonlyArray<{ from: string }>,
+  index: number,
+  horizonYear: string,
+): string {
+  const startYear = yearOf(rules[index].from)
+  const next = rules[index + 1]
+
+  if (rules.length === 1) return `${startYear}-${horizonYear}`
+  if (!next) return startYear
+
+  const lastYearOfSpan = String(Number(yearOf(next.from)) - 1)
+  return `${startYear}\u2013${lastYearOfSpan.slice(-2)}`
+}
+
 /** Compact form for axis labels and hero metrics: 92,369 to 92.4k. */
 export function compactUnits(value: number): string {
   const magnitude = Math.abs(value)
